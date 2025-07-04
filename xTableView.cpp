@@ -1,5 +1,5 @@
 ﻿// ***************************************************************
-//  xTableView   version:  1.3   -   date:  2025/07/04
+//  xTableView   version:  1.4   -   date:  2025/07/04
 //  -------------------------------------------------------------
 //  Yongming Wang(wangym@gmail.com)
 //  (Revised by Gemini)
@@ -66,7 +66,6 @@ bool xTableViewSortFilter::filterAcceptsRow(int sourceRow, const QModelIndex &so
     }
     return true;
 }
-
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 class xTableViewTopRowsFilter : public QSortFilterProxyModel {
   public:
@@ -85,7 +84,6 @@ class xTableViewTopRowsFilter : public QSortFilterProxyModel {
     int limit_ = 0;
 };
 ///////////////////////////////////////////////////////////////////////////////////////////////////
-
 xTableViewItemDelegate::xTableViewItemDelegate(QObject *parent) : QStyledItemDelegate(parent) {}
 
 QWidget *xTableViewItemDelegate::createEditor(QWidget *parent, const QStyleOptionViewItem &opt,
@@ -172,9 +170,7 @@ void xTableViewItemDelegate::paint(QPainter *p, const QStyleOptionViewItem &opt,
 
     QStyledItemDelegate::paint(p, o, idx);
 }
-
 ///////////////////////////////////////////////////////////////////////////////////////////////////
-
 xTableView::xTableView(QWidget *parent)
     : QTableView(parent),
       proxy_(new xTableViewSortFilter(this)),
@@ -423,6 +419,15 @@ void xTableView::createFrozenRowView() {
             frozenRowView_->horizontalScrollBar(), &QAbstractSlider::setValue);
     connect(frozenRowView_->horizontalScrollBar(), &QAbstractSlider::valueChanged,
             horizontalScrollBar(), &QAbstractSlider::setValue);
+
+    // *** NEW: Connect main header resize signal to sync frozen row's column width ***
+    connect(horizontalHeader(), &QHeaderView::sectionResized, this,
+            [this](int logicalIndex, int, int newSize) {
+                if (frozenRowView_) {
+                    frozenRowView_->setColumnWidth(logicalIndex, newSize);
+                }
+            });
+
     frozenRowView_->show();
 }
 
