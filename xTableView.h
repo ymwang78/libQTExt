@@ -58,6 +58,27 @@ class xTableViewSortFilter : public QSortFilterProxyModel {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
+class xTableViewTopRowsFilter : public QSortFilterProxyModel {
+    Q_OBJECT
+
+  public:
+
+    explicit xTableViewTopRowsFilter(QObject *p = nullptr) : QSortFilterProxyModel(p) {}
+
+    void setLimit(int n) {
+        limit_ = n;
+        invalidateFilter();
+    }
+
+  protected:
+    bool filterAcceptsRow(int r, const QModelIndex &) const override { return r < limit_; }
+
+  private:
+    int limit_{0};
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
 class xTableViewItemDelegate : public QStyledItemDelegate {
     Q_OBJECT
   public:
@@ -78,58 +99,82 @@ class xTableViewItemDelegate : public QStyledItemDelegate {
 
 class xTableView : public QTableView {
     Q_OBJECT
-    xTableViewSortFilter *proxy_;
-    QTableView *frozenRowView_;
-    QTableView *frozenColView_;
-    int freezeCols_;
-    int freezeRows_;
+    xTableViewSortFilter *proxy_ = nullptr;
+    QTableView *frozenRowView_ = nullptr;
+    xTableViewTopRowsFilter *frozenRowProxy_ = nullptr;
+    QTableView *frozenColView_ = nullptr;
+    int freezeCols_ = 0;
+    int freezeRows_ = 0;
+    int currentSortCol_ = -1;  //  -1 表示当前无排序
+    Qt::SortOrder currentSortOrd_ = Qt::AscendingOrder;
 
   public:
     explicit xTableView(QWidget *parent = nullptr);
 
     // Provide source model externally so users can hold pointer
+
     void setSourceModel(QAbstractItemModel *m);
 
     inline xTableViewSortFilter *proxyModel() const { return proxy_; }
 
     // Public filtering / sorting helpers --------------------------------------------------
+
     void setColumnFilter(int col, const QVariantMap &cond);
+
     void clearFilters();
+
     void sortBy(int col, Qt::SortOrder ord = Qt::AscendingOrder);
 
     // Freeze API -------------------------------------------------------------------------
+
     void freezeLeftColumns(int n);
 
     void freezeTopRows(int n);
 
     // Theme -----------------------------------------------------------------------------
+
     void applyTheme(const QString &name);
-  signals:
+
+signals:
+
     void findRequested();
 
   protected:
+
     // keyboard shortcuts ---------------------------------------------------------------
+
     void keyPressEvent(QKeyEvent *ev);
 
     void resizeEvent(QResizeEvent *e);
 
   private slots:
+
     void showHeaderMenu(const QPoint &pos);
 
+    void toggleSortColumn(int logicalCol);
+
   private:
+
     // Copy / Paste / Delete --------------------------------------------------------------
+
     void copySelection();
 
     void paste();
+
     void removeSelectedCells();
+
     // Freeze implementation -------------------------------------------------------------
-    void initFrozen(QTableView *&view);
 
     void syncFrozen();
+
+    void createFrozenColView();
+
+    void createFrozenRowView();
 
     void removeFrozen(QTableView **view);
 
     void updateFrozenGeometry();
+
     // Themes ---------------------------------------------------------------------------
     static QString darkQss();
 

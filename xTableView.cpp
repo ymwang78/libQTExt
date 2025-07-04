@@ -159,6 +159,10 @@ xTableView::xTableView(QWidget *parent)
     setVerticalScrollMode(ScrollPerPixel);
     setItemDelegate(new xTableViewItemDelegate(this));
 
+    horizontalHeader()->setSectionsClickable(true);
+    connect(horizontalHeader(), &QHeaderView::sectionClicked, this, &xTableView::toggleSortColumn);
+    horizontalHeader()->setSortIndicatorShown(true);
+
     // header context menu
     horizontalHeader()->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(horizontalHeader(), &QHeaderView::customContextMenuRequested, this,
@@ -258,6 +262,15 @@ void xTableView::showHeaderMenu(const QPoint &pos) {
     }
 }
 
+void xTableView::toggleSortColumn(int logicalCol) {
+    Qt::SortOrder ord = Qt::AscendingOrder;
+    if (logicalCol == currentSortCol_)
+        ord = (currentSortOrd_ == Qt::AscendingOrder) ? Qt::DescendingOrder : Qt::AscendingOrder;
+    currentSortCol_ = logicalCol;
+    currentSortOrd_ = ord;
+    sortBy(logicalCol, ord);
+}
+
 // Copy / Paste / Delete --------------------------------------------------------------
 void xTableView::copySelection() {
     QItemSelection sel = selectionModel()->selection();
@@ -301,33 +314,55 @@ void xTableView::removeSelectedCells() {
     }
 }
 
-// Freeze implementation -------------------------------------------------------------
-void xTableView::initFrozen(QTableView *&view) {
-    if (!view) {
-        view = new QTableView(this);
-        view->setModel(model());
-        view->verticalHeader()->hide();
-        view->horizontalHeader()->hide();
-        view->setFocusPolicy(Qt::NoFocus);
-        view->setSelectionModel(selectionModel());
-        view->setStyleSheet("QTableView { background: palette(window); }");
-        view->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-        view->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-        view->setFrameShape(QFrame::NoFrame);
-        view->show();
+void xTableView::syncFrozen() {
+
+     if (freezeCols_ == 0) {
+        if (frozenColView_) {
+            frozenColView_->deleteLater();
+            frozenColView_ = nullptr;
+        }
+    } else if (!frozenColView_) {
+        createFrozenColView();
     }
+
+    if (freezeRows_ > 0) {
+        if (!frozenRowView_) createFrozenRowView();
+        if (frozenRowProxy_) frozenRowProxy_->setLimit(freezeRows_);
+    } else {
+        if (frozenRowView_) {
+            frozenRowView_->deleteLater();
+            frozenRowView_ = nullptr;
+            frozenRowProxy_ = nullptr;
+        }
+    }
+    updateFrozenGeometry();
 }
 
-void xTableView::syncFrozen() {
-    if (freezeCols_ > 0)
-        initFrozen(frozenColView_);
-    else
-        removeFrozen(&frozenColView_);
-    if (freezeRows_ > 0)
-        initFrozen(frozenRowView_);
-    else
-        removeFrozen(&frozenRowView_);
-    updateFrozenGeometry();
+void xTableView::createFrozenColView() {
+    frozenColView_ = new QTableView(this);
+    frozenColView_->setModel(proxy_);
+    frozenColView_->verticalHeader()->hide();
+    frozenColView_->horizontalHeader()->setSectionResizeMode(QHeaderView::Fixed);
+    frozenColView_->setSelectionModel(selectionModel());
+    frozenColView_->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    frozenColView_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    for (int c = freezeCols_; c < model()->columnCount(); ++c)
+        frozenColView_->setColumnHidden(c, true);
+    frozenColView_->show();
+}
+
+void xTableView::createFrozenRowView() {
+    frozenRowProxy_ = new xTableViewTopRowsFilter(this);
+    frozenRowProxy_->setLimit(freezeRows_);
+    frozenRowProxy_->setSourceModel(proxy_);
+
+    frozenRowView_ = new QTableView(this);
+    frozenRowView_->setModel(frozenRowProxy_);
+    frozenRowView_->horizontalHeader()->hide();
+    frozenRowView_->setSelectionModel(selectionModel());
+    frozenRowView_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    frozenRowView_->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    frozenRowView_->show();
 }
 
 void xTableView::removeFrozen(QTableView **view) {
@@ -341,24 +376,35 @@ void xTableView::updateFrozenGeometry() {
     if (frozenColView_) {
         int w = 0;
         for (int c = 0; c < freezeCols_; ++c) w += columnWidth(c);
-        frozenColView_->setGeometry(frameWidth(), frameWidth() + horizontalHeader()->height(), w,
-                                    viewport()->height());
-        // hide / show columns accordingly
-        for (int c = 0; c < model()->columnCount(); ++c)
-            frozenColView_->setColumnHidden(c, c >= freezeCols_ || isColumnHidden(c));
-        for (int r = 0; r < model()->rowCount(); ++r)
-            frozenColView_->setRowHidden(r, isRowHidden(r));
+        frozenColView_->setGeometry(frameWidth(), frameWidth(), w, height());
     }
     if (frozenRowView_) {
         int h = 0;
         for (int r = 0; r < freezeRows_; ++r) h += rowHeight(r);
-        frozenRowView_->setGeometry(frameWidth() + verticalHeader()->width(), frameWidth(),
-                                    viewport()->width(), h);
-        for (int r = 0; r < model()->rowCount(); ++r)
-            frozenRowView_->setRowHidden(r, r >= freezeRows_ || isRowHidden(r));
-        for (int c = 0; c < model()->columnCount(); ++c)
-            frozenRowView_->setColumnHidden(c, isColumnHidden(c));
+        frozenRowView_->setGeometry(frameWidth(), frameWidth(), width(), h);
     }
+
+    // if (frozenColView_) {
+    //     int w = 0;
+    //     for (int c = 0; c < freezeCols_; ++c) w += columnWidth(c);
+    //     frozenColView_->setGeometry(frameWidth(), frameWidth() + horizontalHeader()->height(), w,
+    //                                 viewport()->height());
+    //     // hide / show columns accordingly
+    //     for (int c = 0; c < model()->columnCount(); ++c)
+    //         frozenColView_->setColumnHidden(c, c >= freezeCols_ || isColumnHidden(c));
+    //     for (int r = 0; r < model()->rowCount(); ++r)
+    //         frozenColView_->setRowHidden(r, isRowHidden(r));
+    // }
+    // if (frozenRowView_) {
+    //     int h = 0;
+    //     for (int r = 0; r < freezeRows_; ++r) h += rowHeight(r);
+    //     frozenRowView_->setGeometry(frameWidth() + verticalHeader()->width(), frameWidth(),
+    //                                 viewport()->width(), h);
+    //     for (int r = 0; r < model()->rowCount(); ++r)
+    //         frozenRowView_->setRowHidden(r, r >= freezeRows_ || isRowHidden(r));
+    //     for (int c = 0; c < model()->columnCount(); ++c)
+    //         frozenRowView_->setColumnHidden(c, isColumnHidden(c));
+    // }
 }
 
 // Themes ---------------------------------------------------------------------------
