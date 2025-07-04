@@ -211,6 +211,17 @@ xTableView::xTableView(QWidget *parent)
             &xTableView::updateFrozenGeometry);
 }
 
+void xTableView::setStretchToFill(bool enabled) {
+    stretchToFill_ = enabled;
+    if (stretchToFill_) {
+        // 设置拉伸模式，所有列将平分可用空间
+        horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    } else {
+        // 恢复为交互模式，用户可以手动调整列宽
+        horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
+    }
+}
+
 void xTableView::setSourceModel(QAbstractItemModel *m) {
     proxy_->setSourceModel(m);
     QTableView::setModel(proxy_);
@@ -232,13 +243,6 @@ void xTableView::freezeLeftColumns(int n) {
 void xTableView::freezeTopRows(int n) {
     freezeRows_ = n > 0 ? n : 0;
     syncFrozen();
-}
-
-void xTableView::applyTheme(const QString &name) {
-    if (name == "dark")
-        setStyleSheet(darkQss());
-    else
-        setStyleSheet(lightQss());
 }
 
 void xTableView::keyPressEvent(QKeyEvent *ev) {
@@ -445,21 +449,4 @@ void xTableView::updateFrozenGeometry() {
                                     frameWidth() + horizontalHeader()->height(),
                                     viewport()->width(), h);
     }
-}
-
-QString xTableView::darkQss() {
-    return QLatin1String(
-        "QTableView{background:#121212;color:#E0E0E0;gridline-color:#333; border: 1px solid #333;}"
-        "QHeaderView::section{background:#1E1E1E;color:#E0E0E0;padding:4px;border:0px; "
-        "border-bottom: 1px solid #333;}"
-        "QTableView::item:selected{background:#2D5AA7;}");
-}
-
-QString xTableView::lightQss() {
-    return QLatin1String(
-        "QTableView{background:white;color:black;gridline-color: #D3D3D3; border: 1px solid "
-        "#D3D3D3;}"
-        "QHeaderView::section{background:#F0F0F0;color:#333;padding:4px;border:0px; border-bottom: "
-        "1px solid #D3D3D3;}"
-        "QTableView::item:selected{background:#CCE8FF;}");
 }

@@ -91,11 +91,14 @@ class xTableView : public QTableView {
     int freezeRows_ = 0;
     int currentSortCol_ = -1;  //  -1 表示当前无排序
     Qt::SortOrder currentSortOrd_ = Qt::AscendingOrder;
+    bool stretchToFill_ = false;
 
   public:
     explicit xTableView(QWidget *parent = nullptr);
 
     // Provide source model externally so users can hold pointer
+
+    void setStretchToFill(bool enabled);
 
     void setSourceModel(QAbstractItemModel *m);
 
@@ -114,10 +117,6 @@ class xTableView : public QTableView {
     void freezeLeftColumns(int n);
 
     void freezeTopRows(int n);
-
-    // Theme -----------------------------------------------------------------------------
-
-    void applyTheme(const QString &name);
 
 signals:
 
@@ -161,8 +160,4 @@ signals:
 
     void updateFrozenGeometry();
 
-    // Themes ---------------------------------------------------------------------------
-    static QString darkQss();
-
-    static QString lightQss();
 };
