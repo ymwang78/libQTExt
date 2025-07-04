@@ -17,7 +17,7 @@
 #include <QPainter>
 
 // custom role for conditional formatting
-constexpr int xTableViewCondRole = Qt::UserRole + 100;
+
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 xTableViewSortFilter::xTableViewSortFilter(QObject *parent) : QSortFilterProxyModel(parent) {}
@@ -89,6 +89,13 @@ xTableViewItemDelegate::xTableViewItemDelegate(QObject *parent) : QStyledItemDel
 QWidget *xTableViewItemDelegate::createEditor(QWidget *parent, const QStyleOptionViewItem &opt,
                                               const QModelIndex &idx) const {
     Q_UNUSED(opt);
+    QVariant comboData = idx.data(xTableView::ComboBoxItemsRole);
+    if (comboData.isValid() && comboData.canConvert<QStringList>()) {
+        QComboBox *e = new QComboBox(parent);
+        e->addItems(comboData.toStringList());
+        e->setFrame(false);
+        return e;
+    }
     QVariant v = idx.data(Qt::EditRole);
     switch (v.typeId()) {
         case QMetaType::Int: {
@@ -117,6 +124,10 @@ QWidget *xTableViewItemDelegate::createEditor(QWidget *parent, const QStyleOptio
 }
 
 void xTableViewItemDelegate::setEditorData(QWidget *editor, const QModelIndex &idx) const {
+    if (auto *cb = qobject_cast<QComboBox *>(editor)) {
+        cb->setCurrentText(idx.data(Qt::DisplayRole).toString());
+        return;
+    }
     QVariant v = idx.data(Qt::EditRole);
     if (v.typeId() == QMetaType::QDateTime) {
         qobject_cast<QDateTimeEdit *>(editor)->setDateTime(v.toDateTime());
@@ -132,7 +143,9 @@ void xTableViewItemDelegate::setEditorData(QWidget *editor, const QModelIndex &i
 void xTableViewItemDelegate::setModelData(QWidget *editor, QAbstractItemModel *mdl,
                                           const QModelIndex &idx) const {
     QVariant out;
-    if (auto *sb = qobject_cast<QSpinBox *>(editor))
+    if (auto *cb = qobject_cast<QComboBox *>(editor)) {
+        out = cb->currentText();
+    } else if (auto *sb = qobject_cast<QSpinBox *>(editor))
         out = sb->value();
     else if (auto *ds = qobject_cast<QDoubleSpinBox *>(editor))
         out = ds->value();
@@ -163,14 +176,108 @@ void xTableViewItemDelegate::paint(QPainter *p, const QStyleOptionViewItem &opt,
             break;
     }
 
-    QVariant cond = idx.data(xTableViewCondRole);
+    QVariant cond = idx.data(xTableView::ConditionRole);
     if (cond.isValid()) {
         if (cond.toString() == "error") o.palette.setColor(QPalette::Text, Qt::red);
     }
 
     QStyledItemDelegate::paint(p, o, idx);
 }
+
 ///////////////////////////////////////////////////////////////////////////////////////////////////
+xAbstractTableModel::xAbstractTableModel(QObject* parent) : QAbstractTableModel(parent) {}
+
+void xAbstractTableModel::setAppendMode(bool enabled) {
+    if (appendMode_ == enabled) return;
+
+    appendMode_ = enabled;
+
+    int realRowCount = baseRowCount(QModelIndex());
+    if (appendMode_) {
+        // 开启模式：在末尾插入占位符行
+        beginInsertRows(QModelIndex(), realRowCount, realRowCount);
+        endInsertRows();
+    } else {
+        // 关闭模式：移除末尾的占位符行
+        beginRemoveRows(QModelIndex(), realRowCount, realRowCount);
+        endRemoveRows();
+    }
+}
+
+int xAbstractTableModel::rowCount(const QModelIndex& parent) const {
+    int realRowCount = baseRowCount(parent);
+    // 真实行数 + 1个占位符行（如果开启）
+    return realRowCount + (appendMode_ ? 1 : 0);
+}
+
+QVariant xAbstractTableModel::data(const QModelIndex& index, int role) const {
+    if (!index.isValid()) return {};
+
+    int realRowCount = baseRowCount(index.parent());
+    // 检查是否是占位符行
+    if (appendMode_ && index.row() == realRowCount) {
+        if (role == Qt::DisplayRole && index.column() == 0) {
+            return "* Click to add a new item...";
+        }
+        if (role == Qt::FontRole) {
+            QFont font;
+            font.setItalic(true);
+            return font;
+        }
+        return {};
+    }
+    // 对于真实数据行，调用子类的实现
+    return baseData(index, role);
+}
+
+Qt::ItemFlags xAbstractTableModel::flags(const QModelIndex& index) const {
+    if (!index.isValid()) return Qt::NoItemFlags;
+
+    int realRowCount = baseRowCount(index.parent());
+    // 检查是否是占位符行
+    if (appendMode_ && index.row() == realRowCount) {
+        // 占位符行默认所有列都可编辑，子类可以在 baseFlags 中覆盖此行为
+        return Qt::ItemIsSelectable | Qt::ItemIsEnabled | Qt::ItemIsEditable;
+    }
+    // 对于真实数据行，调用子类的实现
+    return baseFlags(index);
+}
+
+bool xAbstractTableModel::setData(const QModelIndex& index, const QVariant& value, int role) {
+    if (role != Qt::EditRole || !index.isValid()) {
+        return false;
+    }
+
+    int realRowCount = baseRowCount(index.parent());
+    // 检查是否是占位符行
+    if (appendMode_ && index.row() == realRowCount) {
+        // 是占位符行，触发新增逻辑
+        
+        // 1. 通知视图，即将在占位符的位置（即末尾）插入一个新行
+        beginInsertRows(QModelIndex(), realRowCount, realRowCount);
+
+        // 2. 调用子类实现在底层数据源中创建一条空记录
+        bool success = insertNewBaseRow(realRowCount);
+
+        // 3. 通知视图插入完成
+        endInsertRows();
+
+        if (!success) {
+            return false; // 如果子类插入失败，则终止
+        }
+
+        // 4. 现在 index 指向的已经是新创建的真实行了，
+        //    我们调用子类的 baseSetData 来设置用户刚刚输入的值。
+        return baseSetData(index, value, role);
+
+    } else {
+        // 对于普通数据行，直接调用子类的实现
+        return baseSetData(index, value, role);
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
 xTableView::xTableView(QWidget *parent)
     : QTableView(parent),
       proxy_(new xTableViewSortFilter(this)),
@@ -207,6 +314,7 @@ xTableView::xTableView(QWidget *parent)
             &xTableView::updateFrozenGeometry);
 }
 
+
 void xTableView::setStretchToFill(bool enabled) {
     stretchToFill_ = enabled;
     if (stretchToFill_) {
@@ -216,6 +324,11 @@ void xTableView::setStretchToFill(bool enabled) {
         // 恢复为交互模式，用户可以手动调整列宽
         horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     }
+}
+
+void xTableView::setColumnWidthRatios(const QList<int> &ratios) {
+    columnWidthRatios_ = ratios;
+    setStretchToFill(false);
 }
 
 void xTableView::setSourceModel(QAbstractItemModel *m) {
@@ -266,7 +379,28 @@ void xTableView::keyPressEvent(QKeyEvent *ev) {
 }
 
 void xTableView::resizeEvent(QResizeEvent *e) {
-    QTableView::resizeEvent(e);
+    if (!stretchToFill_ && !columnWidthRatios_.isEmpty()) {
+        if (columnWidthRatios_.isEmpty()) return;
+
+        int totalWidth = viewport()->width();
+        int totalRatio = 0;
+        for (int ratio : columnWidthRatios_) {
+            totalRatio += ratio;
+        }
+
+        if (totalRatio == 0) return;
+
+        for (int i = 0; i < columnWidthRatios_.size(); ++i) {
+            // 确保列存在
+            if (i < model()->columnCount()) {
+                int columnWidth = (totalWidth * columnWidthRatios_[i]) / totalRatio;
+                setColumnWidth(i, columnWidth);
+            }
+        }
+
+    } else {
+        QTableView::resizeEvent(e);
+    }
     updateFrozenGeometry();
 }
 
@@ -427,6 +561,9 @@ void xTableView::createFrozenRowView() {
                     frozenRowView_->setColumnWidth(logicalIndex, newSize);
                 }
             });
+
+    connect(selectionModel(), &QItemSelectionModel::selectionChanged, frozenColView_,
+            static_cast<void (QWidget::*)()>(&QTableView::update));
 
     frozenRowView_->show();
 }

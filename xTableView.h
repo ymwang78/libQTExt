@@ -21,6 +21,8 @@
 #include <QRegularExpression>
 #include <QAbstractTableModel>
 #include <QtWidgets>
+#include <QFont>
+#include <QAbstractTableModel>
 
 class QAbstractItemModel;
 
@@ -80,6 +82,57 @@ class xTableViewItemDelegate : public QStyledItemDelegate {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
+class xAbstractTableModel : public QAbstractTableModel {
+    Q_OBJECT
+
+public:
+    explicit xAbstractTableModel(QObject* parent = nullptr);
+
+    ~xAbstractTableModel() override = default;
+
+    // --- 公共接口 ---
+public slots:
+    // 设置是否开启追加模式
+    void setAppendMode(bool enabled);
+
+public:
+    
+    // --- QAbstractTableModel 的重写函数 ---
+    // 这些函数封装了通用逻辑，并调用子类必须实现的 base/insert 函数
+    
+    int rowCount(const QModelIndex& parent = QModelIndex()) const override final;
+    
+    QVariant data(const QModelIndex& index, int role = Qt::DisplayRole) const override final;
+    
+    Qt::ItemFlags flags(const QModelIndex& index) const override final;
+    
+    bool setData(const QModelIndex& index, const QVariant& value, int role = Qt::EditRole) override final;
+
+protected:
+    // --- 子类必须实现的纯虚函数 ---
+
+    // 返回不包含占位符的“真实”行数
+    virtual int baseRowCount(const QModelIndex& parent) const = 0;
+
+    // 提供“真实”行的数据
+    virtual QVariant baseData(const QModelIndex& index, int role) const = 0;
+
+    // 提供“真实”行的标志
+    virtual Qt::ItemFlags baseFlags(const QModelIndex& index) const = 0;
+
+    // 设置“真实”行的数据
+    virtual bool baseSetData(const QModelIndex& index, const QVariant& value, int role) = 0;
+
+    // 在指定行位置，向底层数据源中插入一条新的空记录。成功返回 true。
+    // 这个函数只负责在数据结构中增加记录，begin/endInsertRows由基类管理。
+    virtual bool insertNewBaseRow(int row) = 0;
+
+private:
+    bool appendMode_ = false; // 控制是否开启追加模式的标志
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
 class xTableView : public QTableView {
     Q_OBJECT
     xTableViewSortFilter *proxy_ = nullptr;
@@ -92,13 +145,20 @@ class xTableView : public QTableView {
     int currentSortCol_ = -1;  //  -1 表示当前无排序
     Qt::SortOrder currentSortOrd_ = Qt::AscendingOrder;
     bool stretchToFill_ = false;
+    QList<int> columnWidthRatios_;
 
   public:
+
+    static constexpr int ConditionRole = Qt::UserRole + 101;
+
+    static constexpr int ComboBoxItemsRole = Qt::UserRole + 102;
+
     explicit xTableView(QWidget *parent = nullptr);
 
-    // Provide source model externally so users can hold pointer
-
+    // Set the table view to stretch to fill the parent widget
     void setStretchToFill(bool enabled);
+
+    void setColumnWidthRatios(const QList<int> &ratios);
 
     void setSourceModel(QAbstractItemModel *m);
 
@@ -118,12 +178,11 @@ class xTableView : public QTableView {
 
     void freezeTopRows(int n);
 
-signals:
+  signals:
 
     void findRequested();
 
   protected:
-
     // keyboard shortcuts ---------------------------------------------------------------
 
     void keyPressEvent(QKeyEvent *ev);
@@ -139,7 +198,6 @@ signals:
     void toggleSortColumn(int logicalCol);
 
   private:
-
     // Copy / Paste / Delete --------------------------------------------------------------
 
     void copySelection();
@@ -156,8 +214,5 @@ signals:
 
     void createFrozenRowView();
 
-    void removeFrozen(QTableView **view);
-
     void updateFrozenGeometry();
-
 };
