@@ -1,14 +1,19 @@
 ﻿// ***************************************************************
-//  xTableView   version:  1.0   -  date:  2025/07/03
+//  xTableView   version:  1.1   -   date:  2025/07/04
 //  -------------------------------------------------------------
 //  Yongming Wang(wangym@gmail.com)
+//  (Revised by Gemini)
 //  -------------------------------------------------------------
 //  This file is a part of project libQTExt.
 //  Copyright (C) 2025 - All Rights Reserved
 // ***************************************************************
 //
-// ***************************************************************
 #include "xTableView.h"
+#include <QApplication>
+#include <QClipboard>
+#include <QMenu>
+#include <QKeyEvent>
+#include <QHeaderView>
 
 // custom role for conditional formatting
 constexpr int xTableViewCondRole = Qt::UserRole + 100;
@@ -55,7 +60,7 @@ bool xTableViewSortFilter::filterAcceptsRow(int sourceRow, const QModelIndex &so
             if (data != fr.equals) return false;
         }
         if (fr.hasBounds()) {
-            if (data.typeId() == QMetaType::Double) {
+            if (data.typeId() == QMetaType::Double || data.typeId() == QMetaType::Int) {
                 double d = data.toDouble();
                 if (d < fr.min || d > fr.max) return false;
             }
@@ -65,11 +70,30 @@ bool xTableViewSortFilter::filterAcceptsRow(int sourceRow, const QModelIndex &so
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
+// Top Rows Filter Proxy for frozen rows
+class xTableViewTopRowsFilter : public QSortFilterProxyModel {
+  public:
+    xTableViewTopRowsFilter(QObject *parent = nullptr) : QSortFilterProxyModel(parent) {}
+    void setLimit(int limit) {
+        limit_ = limit;
+        invalidateFilter();
+    }
+
+  protected:
+    bool filterAcceptsRow(int sourceRow, const QModelIndex &) const override {
+        return sourceRow < limit_;
+    }
+
+  private:
+    int limit_ = 0;
+};
+///////////////////////////////////////////////////////////////////////////////////////////////////
 
 xTableViewItemDelegate::xTableViewItemDelegate(QObject *parent) : QStyledItemDelegate(parent) {}
 
 QWidget *xTableViewItemDelegate::createEditor(QWidget *parent, const QStyleOptionViewItem &opt,
                                               const QModelIndex &idx) const {
+    Q_UNUSED(opt);
     QVariant v = idx.data(Qt::EditRole);
     switch (v.typeId()) {
         case QMetaType::Int: {
@@ -81,7 +105,7 @@ QWidget *xTableViewItemDelegate::createEditor(QWidget *parent, const QStyleOptio
         case QMetaType::Double: {
             QDoubleSpinBox *e = new QDoubleSpinBox(parent);
             e->setDecimals(6);
-            e->setRange(-1e100, 1e100);
+            e->setRange(-1.0e100, 1.0e100);
             e->setFrame(false);
             return e;
         }
@@ -100,17 +124,13 @@ QWidget *xTableViewItemDelegate::createEditor(QWidget *parent, const QStyleOptio
 void xTableViewItemDelegate::setEditorData(QWidget *editor, const QModelIndex &idx) const {
     QVariant v = idx.data(Qt::EditRole);
     if (v.typeId() == QMetaType::QDateTime) {
-        QDateTimeEdit *e = qobject_cast<QDateTimeEdit *>(editor);
-        e->setDateTime(v.toDateTime());
+        qobject_cast<QDateTimeEdit *>(editor)->setDateTime(v.toDateTime());
     } else if (v.typeId() == QMetaType::Double) {
-        QDoubleSpinBox *e = qobject_cast<QDoubleSpinBox *>(editor);
-        e->setValue(v.toDouble());
+        qobject_cast<QDoubleSpinBox *>(editor)->setValue(v.toDouble());
     } else if (v.typeId() == QMetaType::Int) {
-        QSpinBox *e = qobject_cast<QSpinBox *>(editor);
-        e->setValue(v.toInt());
+        qobject_cast<QSpinBox *>(editor)->setValue(v.toInt());
     } else {
-        QLineEdit *e = qobject_cast<QLineEdit *>(editor);
-        e->setText(v.toString());
+        qobject_cast<QLineEdit *>(editor)->setText(v.toString());
     }
 }
 
@@ -143,10 +163,13 @@ void xTableViewItemDelegate::paint(QPainter *p, const QStyleOptionViewItem &opt,
 xTableView::xTableView(QWidget *parent)
     : QTableView(parent),
       proxy_(new xTableViewSortFilter(this)),
+      frozenRowProxy_(nullptr),
       frozenRowView_(nullptr),
       frozenColView_(nullptr),
       freezeCols_(0),
-      freezeRows_(0) {
+      freezeRows_(0),
+      currentSortCol_(-1),
+      currentSortOrd_(Qt::AscendingOrder) {
     // view setup
     setSortingEnabled(true);
     setAlternatingRowColors(true);
@@ -168,7 +191,12 @@ xTableView::xTableView(QWidget *parent)
     connect(horizontalHeader(), &QHeaderView::customContextMenuRequested, this,
             &xTableView::showHeaderMenu);
 
-    // keyboard shortcuts handled by overriding keyPressEvent
+    // *** CRITICAL FOR FROZEN VIEWS ***
+    // Connect scrollbars to update geometry when they appear/disappear
+    connect(horizontalScrollBar(), &QScrollBar::rangeChanged, this,
+            &xTableView::updateFrozenGeometry);
+    connect(verticalScrollBar(), &QScrollBar::rangeChanged, this,
+            &xTableView::updateFrozenGeometry);
 }
 
 // Provide source model externally so users can hold pointer
@@ -189,11 +217,11 @@ void xTableView::sortBy(int col, Qt::SortOrder ord) { sortByColumn(col, ord); }
 
 // Freeze API -------------------------------------------------------------------------
 void xTableView::freezeLeftColumns(int n) {
-    freezeCols_ = n;
+    freezeCols_ = n > 0 ? n : 0;
     syncFrozen();
 }
 void xTableView::freezeTopRows(int n) {
-    freezeRows_ = n;
+    freezeRows_ = n > 0 ? n : 0;
     syncFrozen();
 }
 
@@ -235,8 +263,15 @@ void xTableView::resizeEvent(QResizeEvent *e) {
     updateFrozenGeometry();
 }
 
+// Ensure frozen views also update on scroll events
+void xTableView::scrollContentsBy(int dx, int dy) {
+    QTableView::scrollContentsBy(dx, dy);
+    updateFrozenGeometry();
+}
+
 void xTableView::showHeaderMenu(const QPoint &pos) {
     int column = horizontalHeader()->logicalIndexAt(pos);
+    if (column < 0) return;  // Clicked on empty area
     QMenu menu(this);
 
     QAction *hideAct = menu.addAction(tr("Hide Column"));
@@ -246,6 +281,8 @@ void xTableView::showHeaderMenu(const QPoint &pos) {
     QAction *unfreezeAct = menu.addAction(tr("Unfreeze Columns"));
     menu.addSeparator();
     QAction *exportAct = menu.addAction(tr("Export Selection (TSV)"));
+
+    unfreezeAct->setEnabled(freezeCols_ > 0);
 
     QAction *ret = menu.exec(horizontalHeader()->viewport()->mapToGlobal(pos));
     if (!ret) return;
@@ -263,30 +300,41 @@ void xTableView::showHeaderMenu(const QPoint &pos) {
 }
 
 void xTableView::toggleSortColumn(int logicalCol) {
+    if (logicalCol < 0) return;
     Qt::SortOrder ord = Qt::AscendingOrder;
     if (logicalCol == currentSortCol_)
         ord = (currentSortOrd_ == Qt::AscendingOrder) ? Qt::DescendingOrder : Qt::AscendingOrder;
+
     currentSortCol_ = logicalCol;
     currentSortOrd_ = ord;
     sortBy(logicalCol, ord);
+    horizontalHeader()->setSortIndicator(logicalCol, ord);
 }
 
 // Copy / Paste / Delete --------------------------------------------------------------
 void xTableView::copySelection() {
     QItemSelection sel = selectionModel()->selection();
     if (sel.isEmpty()) return;
-    // assume contiguous selection
-    QModelIndex topLeft = sel.first().topLeft();
-    QModelIndex bottomRight = sel.last().bottomRight();
+    // QContiguousSelection doesn't work well, so we get all indexes and process them
+    QModelIndexList indexes = sel.indexes();
+    if (indexes.isEmpty()) return;
+
+    // Use a map to build the table text correctly, even with non-contiguous selections
+    QMap<int, QMap<int, QString>> rowData;
+    for (const QModelIndex &index : indexes) {
+        rowData[index.row()][index.column()] = index.data(Qt::DisplayRole).toString();
+    }
+
     QString text;
-    for (int r = topLeft.row(); r <= bottomRight.row(); ++r) {
+    for (auto it = rowData.constBegin(); it != rowData.constEnd(); ++it) {
         QStringList line;
-        for (int c = topLeft.column(); c <= bottomRight.column(); ++c) {
-            line << model()->index(r, c).data(Qt::DisplayRole).toString();
+        for (auto jt = it.value().constBegin(); jt != it.value().constEnd(); ++jt) {
+            line << jt.value();
         }
         text += line.join("\t");
-        if (r != bottomRight.row()) text += "\n";
+        text += "\n";
     }
+    text.chop(1);  // Remove last newline
     QApplication::clipboard()->setText(text);
 }
 
@@ -302,7 +350,8 @@ void xTableView::paste() {
         QStringList cols = rows[i].split("\t");
         for (int j = 0; j < cols.size(); ++j) {
             QModelIndex idx = model()->index(r0 + i, c0 + j);
-            if (idx.flags() & Qt::ItemIsEditable) model()->setData(idx, cols[j], Qt::EditRole);
+            if (idx.isValid() && (idx.flags() & Qt::ItemIsEditable))
+                model()->setData(idx, cols[j], Qt::EditRole);
         }
     }
 }
@@ -310,113 +359,128 @@ void xTableView::paste() {
 void xTableView::removeSelectedCells() {
     auto sel = selectionModel()->selectedIndexes();
     for (const QModelIndex &idx : sel) {
-        if (idx.flags() & Qt::ItemIsEditable) model()->setData(idx, QVariant(), Qt::EditRole);
+        if (idx.isValid() && (idx.flags() & Qt::ItemIsEditable))
+            model()->setData(idx, QVariant(), Qt::EditRole);
     }
 }
 
 void xTableView::syncFrozen() {
-
-     if (freezeCols_ == 0) {
-        if (frozenColView_) {
-            frozenColView_->deleteLater();
-            frozenColView_ = nullptr;
-        }
-    } else if (!frozenColView_) {
+    // === Handle Frozen Columns ===
+    if (freezeCols_ > 0 && !frozenColView_) {
         createFrozenColView();
+    } else if (freezeCols_ == 0 && frozenColView_) {
+        frozenColView_->deleteLater();
+        frozenColView_ = nullptr;
     }
 
-    if (freezeRows_ > 0) {
-        if (!frozenRowView_) createFrozenRowView();
-        if (frozenRowProxy_) frozenRowProxy_->setLimit(freezeRows_);
-    } else {
-        if (frozenRowView_) {
-            frozenRowView_->deleteLater();
-            frozenRowView_ = nullptr;
-            frozenRowProxy_ = nullptr;
+    if (frozenColView_) {
+        for (int c = 0; c < model()->columnCount(); ++c) {
+            frozenColView_->setColumnHidden(c, c >= freezeCols_);
         }
     }
+
+    // === Handle Frozen Rows ===
+    if (freezeRows_ > 0 && !frozenRowView_) {
+        createFrozenRowView();
+    } else if (freezeRows_ == 0 && frozenRowView_) {
+        frozenRowView_->deleteLater();
+        frozenRowView_ = nullptr;
+        frozenRowProxy_ = nullptr;
+    }
+
+    if (frozenRowProxy_) {
+        frozenRowProxy_->setLimit(freezeRows_);
+    }
+
     updateFrozenGeometry();
 }
 
 void xTableView::createFrozenColView() {
     frozenColView_ = new QTableView(this);
     frozenColView_->setModel(proxy_);
+    frozenColView_->setItemDelegate(itemDelegate());
+    frozenColView_->setFocusPolicy(Qt::NoFocus);
     frozenColView_->verticalHeader()->hide();
     frozenColView_->horizontalHeader()->setSectionResizeMode(QHeaderView::Fixed);
     frozenColView_->setSelectionModel(selectionModel());
     frozenColView_->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     frozenColView_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    for (int c = freezeCols_; c < model()->columnCount(); ++c)
-        frozenColView_->setColumnHidden(c, true);
+
+    // Sync scrolling between main view and frozen column view
+    connect(verticalScrollBar(), &QAbstractSlider::valueChanged,
+            frozenColView_->verticalScrollBar(), &QAbstractSlider::setValue);
+    connect(frozenColView_->verticalScrollBar(), &QAbstractSlider::valueChanged,
+            verticalScrollBar(), &QAbstractSlider::setValue);
+
     frozenColView_->show();
 }
 
 void xTableView::createFrozenRowView() {
     frozenRowProxy_ = new xTableViewTopRowsFilter(this);
-    frozenRowProxy_->setLimit(freezeRows_);
     frozenRowProxy_->setSourceModel(proxy_);
 
     frozenRowView_ = new QTableView(this);
     frozenRowView_->setModel(frozenRowProxy_);
+    frozenRowView_->setItemDelegate(itemDelegate());
+    frozenRowView_->setFocusPolicy(Qt::NoFocus);
     frozenRowView_->horizontalHeader()->hide();
+    frozenRowView_->verticalHeader()->hide();
     frozenRowView_->setSelectionModel(selectionModel());
     frozenRowView_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     frozenRowView_->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+
+    // Sync scrolling between main view and frozen row view
+    connect(horizontalScrollBar(), &QAbstractSlider::valueChanged,
+            frozenRowView_->horizontalScrollBar(), &QAbstractSlider::setValue);
+    connect(frozenRowView_->horizontalScrollBar(), &QAbstractSlider::valueChanged,
+            horizontalScrollBar(), &QAbstractSlider::setValue);
+
     frozenRowView_->show();
 }
 
-void xTableView::removeFrozen(QTableView **view) {
-    if (*view) {
-        delete *view;
-        *view = nullptr;
-    }
-}
-
 void xTableView::updateFrozenGeometry() {
+    // Correctly calculate geometry for frozen column view
     if (frozenColView_) {
         int w = 0;
-        for (int c = 0; c < freezeCols_; ++c) w += columnWidth(c);
-        frozenColView_->setGeometry(frameWidth(), frameWidth(), w, height());
-    }
-    if (frozenRowView_) {
-        int h = 0;
-        for (int r = 0; r < freezeRows_; ++r) h += rowHeight(r);
-        frozenRowView_->setGeometry(frameWidth(), frameWidth(), width(), h);
+        for (int c = 0; c < freezeCols_; ++c) {
+            if (!isColumnHidden(c)) {
+                w += columnWidth(c);
+            }
+        }
+        // Position it below the header and match the main viewport's height
+        frozenColView_->setGeometry(verticalHeader()->width() + frameWidth(),
+                                    frameWidth() + horizontalHeader()->height(), w,
+                                    viewport()->height());
     }
 
-    // if (frozenColView_) {
-    //     int w = 0;
-    //     for (int c = 0; c < freezeCols_; ++c) w += columnWidth(c);
-    //     frozenColView_->setGeometry(frameWidth(), frameWidth() + horizontalHeader()->height(), w,
-    //                                 viewport()->height());
-    //     // hide / show columns accordingly
-    //     for (int c = 0; c < model()->columnCount(); ++c)
-    //         frozenColView_->setColumnHidden(c, c >= freezeCols_ || isColumnHidden(c));
-    //     for (int r = 0; r < model()->rowCount(); ++r)
-    //         frozenColView_->setRowHidden(r, isRowHidden(r));
-    // }
-    // if (frozenRowView_) {
-    //     int h = 0;
-    //     for (int r = 0; r < freezeRows_; ++r) h += rowHeight(r);
-    //     frozenRowView_->setGeometry(frameWidth() + verticalHeader()->width(), frameWidth(),
-    //                                 viewport()->width(), h);
-    //     for (int r = 0; r < model()->rowCount(); ++r)
-    //         frozenRowView_->setRowHidden(r, r >= freezeRows_ || isRowHidden(r));
-    //     for (int c = 0; c < model()->columnCount(); ++c)
-    //         frozenRowView_->setColumnHidden(c, isColumnHidden(c));
-    // }
+    // Correctly calculate geometry for frozen row view
+    if (frozenRowView_) {
+        int h = 0;
+        for (int r = 0; r < freezeRows_; ++r) {
+            if (!isRowHidden(r)) {
+                h += rowHeight(r);
+            }
+        }
+        // Position it to the right of the vertical header and match the main viewport's width
+        frozenRowView_->setGeometry(verticalHeader()->width() + frameWidth(),
+                                    frameWidth() + horizontalHeader()->height(),
+                                    viewport()->width(), h);
+    }
 }
 
 // Themes ---------------------------------------------------------------------------
 QString xTableView::darkQss() {
     return QLatin1String(
-        "QTableView{background:#121212;color:#E0E0E0;gridline-color:#333;}"
-        "QHeaderView::section{background:#1E1E1E;color:#E0E0E0;padding:4px;border:0px;}"
+        "QTableView{background:#121212;color:#E0E0E0;gridline-color:#333; border: 1px solid #333;}"
+        "QHeaderView::section{background:#1E1E1E;color:#E0E0E0;padding:4px;border:0px; "
+        "border-bottom: 1px solid #333;}"
         "QTableView::item:selected{background:#2D5AA7;}");
 }
 QString xTableView::lightQss() {
     return QLatin1String(
-        "QTableView{background:white;color:black;}"
-        "QHeaderView::section{background:#F0F0F0;color:#333;padding:4px;border:0px;}"
+        "QTableView{background:white;color:black;gridline-color: #D3D3D3; border: 1px solid "
+        "#D3D3D3;}"
+        "QHeaderView::section{background:#F0F0F0;color:#333;padding:4px;border:0px; border-bottom: "
+        "1px solid #D3D3D3;}"
         "QTableView::item:selected{background:#CCE8FF;}");
 }

@@ -58,24 +58,7 @@ class xTableViewSortFilter : public QSortFilterProxyModel {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-class xTableViewTopRowsFilter : public QSortFilterProxyModel {
-    Q_OBJECT
-
-  public:
-
-    explicit xTableViewTopRowsFilter(QObject *p = nullptr) : QSortFilterProxyModel(p) {}
-
-    void setLimit(int n) {
-        limit_ = n;
-        invalidateFilter();
-    }
-
-  protected:
-    bool filterAcceptsRow(int r, const QModelIndex &) const override { return r < limit_; }
-
-  private:
-    int limit_{0};
-};
+class xTableViewTopRowsFilter;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -146,6 +129,8 @@ signals:
     void keyPressEvent(QKeyEvent *ev);
 
     void resizeEvent(QResizeEvent *e);
+
+    void scrollContentsBy(int dx, int dy);
 
   private slots:
 
