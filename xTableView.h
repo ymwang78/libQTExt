@@ -86,6 +86,7 @@ class xTableView : public QTableView {
     QTableView *frozenRowView_ = nullptr;
     xTableViewTopRowsFilter *frozenRowProxy_ = nullptr;
     QTableView *frozenColView_ = nullptr;
+    xTableViewTopRowsFilter *frozenColVievew_ = nullptr;
     int freezeCols_ = 0;
     int freezeRows_ = 0;
     int currentSortCol_ = -1;  //  -1 表示当前无排序
