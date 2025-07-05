@@ -99,7 +99,9 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="libqtext_global.h" />
+    <QtMoc Include="xTableEditor.h" />
     <QtMoc Include="xTableView.h" />
+    <ClCompile Include="xTableEditor.cpp" />
     <ClCompile Include="xTableView.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

@@ -23,6 +23,7 @@
 #include <QtWidgets>
 #include <QFont>
 #include <QAbstractTableModel>
+#include <optional>
 
 class QAbstractItemModel;
 
@@ -55,6 +56,8 @@ class xTableViewSortFilter : public QSortFilterProxyModel {
     void clearFilters();
 
   protected:
+    bool lessThan(const QModelIndex &left, const QModelIndex &right) const override;
+
     bool filterAcceptsRow(int sourceRow, const QModelIndex &sourceParent) const override;
 };
 
@@ -78,17 +81,25 @@ class xTableViewItemDelegate : public QStyledItemDelegate {
                       const QModelIndex &idx) const override;
 
     void paint(QPainter *p, const QStyleOptionViewItem &opt, const QModelIndex &idx) const override;
+
+  private slots:
+    void commitAndCloseEditor();
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 class xAbstractTableModel : public QAbstractTableModel {
-    Q_OBJECT
+    friend class xTableViewSortFilter;  // 允许 xTableViewSortFilter 访问私有成员baseRowCount
 
-public:
+    Q_OBJECT
+    bool append_mode_ = false;  // 控制是否开启追加模式的标志
+
+  public:
     explicit xAbstractTableModel(QObject* parent = nullptr);
 
     ~xAbstractTableModel() override = default;
+
+    bool appendMode() const { return append_mode_; }
 
     // --- 公共接口 ---
 public slots:
@@ -112,7 +123,7 @@ protected:
     // --- 子类必须实现的纯虚函数 ---
 
     // 返回不包含占位符的“真实”行数
-    virtual int baseRowCount(const QModelIndex& parent) const = 0;
+    virtual int baseRowCount(const QModelIndex &parent = QModelIndex()) const = 0;
 
     // 提供“真实”行的数据
     virtual QVariant baseData(const QModelIndex& index, int role) const = 0;
@@ -128,7 +139,6 @@ protected:
     virtual bool insertNewBaseRow(int row) = 0;
 
 private:
-    bool appendMode_ = false; // 控制是否开启追加模式的标志
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -136,22 +146,23 @@ private:
 class xTableView : public QTableView {
     Q_OBJECT
     xTableViewSortFilter *proxy_ = nullptr;
-    QTableView *frozenRowView_ = nullptr;
-    xTableViewTopRowsFilter *frozenRowProxy_ = nullptr;
-    QTableView *frozenColView_ = nullptr;
-    xTableViewTopRowsFilter *frozenColVievew_ = nullptr;
-    int freezeCols_ = 0;
-    int freezeRows_ = 0;
-    int currentSortCol_ = -1;  //  -1 表示当前无排序
-    Qt::SortOrder currentSortOrd_ = Qt::AscendingOrder;
-    bool stretchToFill_ = false;
-    QList<int> columnWidthRatios_;
+    QTableView *frozen_row_view_ = nullptr;
+    xTableViewTopRowsFilter *frozen_row_filter_ = nullptr;
+    QTableView *frozen_col_view_ = nullptr;
+    xTableViewTopRowsFilter *frozen_col_filter_ = nullptr;
+    int freeze_cols_ = 0;
+    int freeze_rows_ = 0;
+    int current_sort_col_ = -1;  //  -1 表示当前无排序
+    Qt::SortOrder current_sort_order_ = Qt::AscendingOrder;
+    bool is_stretch_to_fill_ = false;
+    QList<int> column_width_ratios_;
 
   public:
 
     static constexpr int ConditionRole = Qt::UserRole + 101;
-
     static constexpr int ComboBoxItemsRole = Qt::UserRole + 102;
+    static constexpr int StringListEditRole = Qt::UserRole + 103; 
+    static constexpr int StringListDialogFactoryRole = Qt::UserRole + 104;
 
     explicit xTableView(QWidget *parent = nullptr);
 
@@ -177,6 +188,14 @@ class xTableView : public QTableView {
     void freezeLeftColumns(int n);
 
     void freezeTopRows(int n);
+
+    // Special Item Editors ---------------------------------------------------------------
+   
+    // 配合 xTableStringListEditor 
+    // 函数签名：(父窗口, 当前已选项) -> std::optional<选择结果>
+    // 使用 std::optional 来优雅地处理用户点击“取消”的情况
+    using StringListDialogFactory = std::function<std::optional<QStringList>(
+        QWidget *, const QStringList &)>;
 
   signals:
 

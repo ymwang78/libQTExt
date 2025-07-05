@@ -2,7 +2,6 @@
 //  xTableView   version:  1.4   -   date:  2025/07/04
 //  -------------------------------------------------------------
 //  Yongming Wang(wangym@gmail.com)
-//  (Revised by Gemini)
 //  -------------------------------------------------------------
 //  This file is a part of project libQTExt.
 //  Copyright (C) 2025 - All Rights Reserved
@@ -15,6 +14,7 @@
 #include <QKeyEvent>
 #include <QHeaderView>
 #include <QPainter>
+#include "xTableEditor.h"
 
 // custom role for conditional formatting
 
@@ -45,8 +45,57 @@ void xTableViewSortFilter::clearFilters() {
     invalidateFilter();
 }
 
+bool xTableViewSortFilter::lessThan(const QModelIndex &source_left,
+                                    const QModelIndex &source_right) const {
+
+        if (!source_left.isValid() || !source_right.isValid()) {
+            return false;
+        }
+    
+        auto source_model = qobject_cast<const xAbstractTableModel*>(sourceModel());
+        
+        // 检查是否开启了追加模式
+        if (source_model && source_model->appendMode()) {
+            int placeholderRow = source_model->baseRowCount();
+    
+            // 正确的做法：直接使用 source_left 和 source_right 的行号，因为它们已经是源模型的索引。
+            bool leftIsPlaceholder = (source_left.row() == placeholderRow);
+            bool rightIsPlaceholder = (source_right.row() == placeholderRow);
+    
+            // 如果两个索引中有一个是占位符行，则进入特殊处理逻辑
+            if (leftIsPlaceholder || rightIsPlaceholder) {
+                // 如果左边是占位符行
+                if (leftIsPlaceholder) {
+                    // 在降序时，占位符应视为“小于”真实行，以便排在最后，返回 true。
+                    // 在升序时，应视为“不小于”真实行，返回 false。
+                    return (sortOrder() == Qt::DescendingOrder);
+                }
+                
+                // 如果右边是占位符行
+                // (这里的逻辑与上面对称)
+                if (rightIsPlaceholder) {
+                    // 在升序时，真实行应视为“小于”占位符行，返回 true。
+                    // 在降序时，返回 false。
+                    return (sortOrder() == Qt::AscendingOrder);
+                }
+            }
+        }
+        
+        // 对于所有其他情况（两个都是真实数据行，或未开启追加模式），使用默认的 Qt 比较逻辑
+        return QSortFilterProxyModel::lessThan(source_left, source_right);
+}
+
 bool xTableViewSortFilter::filterAcceptsRow(int sourceRow, const QModelIndex &sourceParent) const {
+    auto source = qobject_cast<const xAbstractTableModel *>(sourceModel());
+    if (source && source->appendMode()) {
+        int placeholderRow = source->baseRowCount(sourceParent);
+        if (sourceRow == placeholderRow) {
+            return true;  // Always show the placeholder row
+        }
+    }
+
     if (filters_.isEmpty()) return true;
+
     for (const xTableViewFilterRule &fr : filters_) {
         QModelIndex idx = sourceModel()->index(sourceRow, fr.column, sourceParent);
         if (!idx.isValid()) continue;
@@ -89,12 +138,34 @@ xTableViewItemDelegate::xTableViewItemDelegate(QObject *parent) : QStyledItemDel
 QWidget *xTableViewItemDelegate::createEditor(QWidget *parent, const QStyleOptionViewItem &opt,
                                               const QModelIndex &idx) const {
     Q_UNUSED(opt);
+    if (idx.data(xTableView::StringListEditRole).toBool()) {
+        QVariant factoryData = idx.data(xTableView::StringListDialogFactoryRole);
+        if (factoryData.isValid()) {
+            auto factory = factoryData.value<xTableView::StringListDialogFactory>();
+            if (factory) {
+                auto *editor = new xTableStringListEditor(factory, parent);
+                connect(editor, &xTableStringListEditor::editingFinished, this,
+                        &xTableViewItemDelegate::commitAndCloseEditor);
+                return editor;
+            }
+        }
+    }
     QVariant comboData = idx.data(xTableView::ComboBoxItemsRole);
-    if (comboData.isValid() && comboData.canConvert<QStringList>()) {
-        QComboBox *e = new QComboBox(parent);
-        e->addItems(comboData.toStringList());
-        e->setFrame(false);
-        return e;
+    if (comboData.isValid()) {
+        if (comboData.canConvert<QStringList>()) {
+            QComboBox *e = new QComboBox(parent);
+            e->addItems(comboData.toStringList());
+            e->setFrame(false);
+            return e;
+        } else if (comboData.canConvert<std::vector<std::string>>()) {
+            QComboBox *e = new QComboBox(parent);
+            std::vector<std::string> lst = comboData.value<std::vector<std::string>>();
+            for (const auto& item : lst) {
+                e->addItem(QString::fromStdString(item));
+            }
+            e->setFrame(false);
+            return e;
+        }
     }
     QVariant v = idx.data(Qt::EditRole);
     switch (v.typeId()) {
@@ -124,6 +195,11 @@ QWidget *xTableViewItemDelegate::createEditor(QWidget *parent, const QStyleOptio
 }
 
 void xTableViewItemDelegate::setEditorData(QWidget *editor, const QModelIndex &idx) const {
+    if (auto *stringListEditor = qobject_cast<xTableStringListEditor *>(editor)) {
+        // 从模型获取 QStringList 并设置给编辑器
+        stringListEditor->setStringList(idx.data(Qt::EditRole).toStringList());
+        return;
+    }
     if (auto *cb = qobject_cast<QComboBox *>(editor)) {
         cb->setCurrentText(idx.data(Qt::DisplayRole).toString());
         return;
@@ -143,7 +219,10 @@ void xTableViewItemDelegate::setEditorData(QWidget *editor, const QModelIndex &i
 void xTableViewItemDelegate::setModelData(QWidget *editor, QAbstractItemModel *mdl,
                                           const QModelIndex &idx) const {
     QVariant out;
-    if (auto *cb = qobject_cast<QComboBox *>(editor)) {
+    if (auto *stringListEditor = qobject_cast<xTableStringListEditor *>(editor)) {
+        out = stringListEditor->getStringList();
+    }
+    else if (auto *cb = qobject_cast<QComboBox *>(editor)) {
         out = cb->currentText();
     } else if (auto *sb = qobject_cast<QSpinBox *>(editor))
         out = sb->value();
@@ -158,10 +237,9 @@ void xTableViewItemDelegate::setModelData(QWidget *editor, QAbstractItemModel *m
 
 void xTableViewItemDelegate::paint(QPainter *p, const QStyleOptionViewItem &opt,
                                    const QModelIndex &idx) const {
-    QStyleOptionViewItem o(opt);
-    initStyleOption(&o, idx);
-
-    QVariant data = idx.data(Qt::DisplayRole);
+    QStyleOptionViewItem option = opt;
+    initStyleOption(&option, idx);
+    QVariant data = idx.data(Qt::EditRole); 
     switch (static_cast<QMetaType::Type>(data.typeId())) {
         case QMetaType::Int:
         case QMetaType::UInt:
@@ -169,31 +247,37 @@ void xTableViewItemDelegate::paint(QPainter *p, const QStyleOptionViewItem &opt,
         case QMetaType::ULongLong:
         case QMetaType::Double:
         case QMetaType::Float:
-            o.displayAlignment = Qt::AlignRight | Qt::AlignVCenter;
+            option.displayAlignment = Qt::AlignRight | Qt::AlignVCenter;
             break;
         default:
-            o.displayAlignment = Qt::AlignLeft | Qt::AlignVCenter;
+            option.displayAlignment = Qt::AlignLeft | Qt::AlignVCenter;
             break;
     }
 
     QVariant cond = idx.data(xTableView::ConditionRole);
     if (cond.isValid()) {
-        if (cond.toString() == "error") o.palette.setColor(QPalette::Text, Qt::red);
+        if (cond.toString() == "error") option.palette.setColor(QPalette::Text, Qt::red);
     }
 
-    QStyledItemDelegate::paint(p, o, idx);
+    QStyledItemDelegate::paint(p, option, idx);
+}
+
+void xTableViewItemDelegate::commitAndCloseEditor() {
+    auto *editor = qobject_cast<QWidget *>(sender());
+    emit commitData(editor);
+    emit closeEditor(editor);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
-xAbstractTableModel::xAbstractTableModel(QObject* parent) : QAbstractTableModel(parent) {}
+xAbstractTableModel::xAbstractTableModel(QObject *parent) : QAbstractTableModel(parent) {}
 
 void xAbstractTableModel::setAppendMode(bool enabled) {
-    if (appendMode_ == enabled) return;
+    if (append_mode_ == enabled) return;
 
-    appendMode_ = enabled;
+    append_mode_ = enabled;
 
     int realRowCount = baseRowCount(QModelIndex());
-    if (appendMode_) {
+    if (append_mode_) {
         // 开启模式：在末尾插入占位符行
         beginInsertRows(QModelIndex(), realRowCount, realRowCount);
         endInsertRows();
@@ -204,18 +288,18 @@ void xAbstractTableModel::setAppendMode(bool enabled) {
     }
 }
 
-int xAbstractTableModel::rowCount(const QModelIndex& parent) const {
+int xAbstractTableModel::rowCount(const QModelIndex &parent) const {
     int realRowCount = baseRowCount(parent);
     // 真实行数 + 1个占位符行（如果开启）
-    return realRowCount + (appendMode_ ? 1 : 0);
+    return realRowCount + (append_mode_ ? 1 : 0);
 }
 
-QVariant xAbstractTableModel::data(const QModelIndex& index, int role) const {
+QVariant xAbstractTableModel::data(const QModelIndex &index, int role) const {
     if (!index.isValid()) return {};
 
     int realRowCount = baseRowCount(index.parent());
     // 检查是否是占位符行
-    if (appendMode_ && index.row() == realRowCount) {
+    if (append_mode_ && index.row() == realRowCount) {
         if (role == Qt::DisplayRole && index.column() == 0) {
             return "* Click to add a new item...";
         }
@@ -230,12 +314,12 @@ QVariant xAbstractTableModel::data(const QModelIndex& index, int role) const {
     return baseData(index, role);
 }
 
-Qt::ItemFlags xAbstractTableModel::flags(const QModelIndex& index) const {
+Qt::ItemFlags xAbstractTableModel::flags(const QModelIndex &index) const {
     if (!index.isValid()) return Qt::NoItemFlags;
 
     int realRowCount = baseRowCount(index.parent());
     // 检查是否是占位符行
-    if (appendMode_ && index.row() == realRowCount) {
+    if (append_mode_ && index.row() == realRowCount) {
         // 占位符行默认所有列都可编辑，子类可以在 baseFlags 中覆盖此行为
         return Qt::ItemIsSelectable | Qt::ItemIsEnabled | Qt::ItemIsEditable;
     }
@@ -243,16 +327,16 @@ Qt::ItemFlags xAbstractTableModel::flags(const QModelIndex& index) const {
     return baseFlags(index);
 }
 
-bool xAbstractTableModel::setData(const QModelIndex& index, const QVariant& value, int role) {
+bool xAbstractTableModel::setData(const QModelIndex &index, const QVariant &value, int role) {
     if (role != Qt::EditRole || !index.isValid()) {
         return false;
     }
 
     int realRowCount = baseRowCount(index.parent());
     // 检查是否是占位符行
-    if (appendMode_ && index.row() == realRowCount) {
+    if (append_mode_ && index.row() == realRowCount) {
         // 是占位符行，触发新增逻辑
-        
+
         // 1. 通知视图，即将在占位符的位置（即末尾）插入一个新行
         beginInsertRows(QModelIndex(), realRowCount, realRowCount);
 
@@ -263,7 +347,7 @@ bool xAbstractTableModel::setData(const QModelIndex& index, const QVariant& valu
         endInsertRows();
 
         if (!success) {
-            return false; // 如果子类插入失败，则终止
+            return false;  // 如果子类插入失败，则终止
         }
 
         // 4. 现在 index 指向的已经是新创建的真实行了，
@@ -281,13 +365,13 @@ bool xAbstractTableModel::setData(const QModelIndex& index, const QVariant& valu
 xTableView::xTableView(QWidget *parent)
     : QTableView(parent),
       proxy_(new xTableViewSortFilter(this)),
-      frozenRowProxy_(nullptr),
-      frozenRowView_(nullptr),
-      frozenColView_(nullptr),
-      freezeCols_(0),
-      freezeRows_(0),
-      currentSortCol_(-1),
-      currentSortOrd_(Qt::AscendingOrder) {
+      frozen_row_filter_(nullptr),
+      frozen_row_view_(nullptr),
+      frozen_col_view_(nullptr),
+      freeze_cols_(0),
+      freeze_rows_(0),
+      current_sort_col_(-1),
+      current_sort_order_(Qt::AscendingOrder) {
     setSortingEnabled(true);
     setAlternatingRowColors(true);
     verticalHeader()->setDefaultSectionSize(22);
@@ -314,10 +398,9 @@ xTableView::xTableView(QWidget *parent)
             &xTableView::updateFrozenGeometry);
 }
 
-
 void xTableView::setStretchToFill(bool enabled) {
-    stretchToFill_ = enabled;
-    if (stretchToFill_) {
+    is_stretch_to_fill_ = enabled;
+    if (is_stretch_to_fill_) {
         // 设置拉伸模式，所有列将平分可用空间
         horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     } else {
@@ -327,7 +410,7 @@ void xTableView::setStretchToFill(bool enabled) {
 }
 
 void xTableView::setColumnWidthRatios(const QList<int> &ratios) {
-    columnWidthRatios_ = ratios;
+    column_width_ratios_ = ratios;
     setStretchToFill(false);
 }
 
@@ -346,11 +429,11 @@ void xTableView::clearFilters() { proxy_->clearFilters(); }
 void xTableView::sortBy(int col, Qt::SortOrder ord) { sortByColumn(col, ord); }
 
 void xTableView::freezeLeftColumns(int n) {
-    freezeCols_ = n > 0 ? n : 0;
+    freeze_cols_ = n > 0 ? n : 0;
     syncFrozen();
 }
 void xTableView::freezeTopRows(int n) {
-    freezeRows_ = n > 0 ? n : 0;
+    freeze_rows_ = n > 0 ? n : 0;
     syncFrozen();
 }
 
@@ -379,21 +462,21 @@ void xTableView::keyPressEvent(QKeyEvent *ev) {
 }
 
 void xTableView::resizeEvent(QResizeEvent *e) {
-    if (!stretchToFill_ && !columnWidthRatios_.isEmpty()) {
-        if (columnWidthRatios_.isEmpty()) return;
+    if (!is_stretch_to_fill_ && !column_width_ratios_.isEmpty()) {
+        if (column_width_ratios_.isEmpty()) return;
 
         int totalWidth = viewport()->width();
         int totalRatio = 0;
-        for (int ratio : columnWidthRatios_) {
+        for (int ratio : column_width_ratios_) {
             totalRatio += ratio;
         }
 
         if (totalRatio == 0) return;
 
-        for (int i = 0; i < columnWidthRatios_.size(); ++i) {
+        for (int i = 0; i < column_width_ratios_.size(); ++i) {
             // 确保列存在
             if (i < model()->columnCount()) {
-                int columnWidth = (totalWidth * columnWidthRatios_[i]) / totalRatio;
+                int columnWidth = (totalWidth * column_width_ratios_[i]) / totalRatio;
                 setColumnWidth(i, columnWidth);
             }
         }
@@ -420,7 +503,7 @@ void xTableView::showHeaderMenu(const QPoint &pos) {
     QAction *unfreezeAct = menu.addAction(tr("Unfreeze Columns"));
     menu.addSeparator();
     QAction *exportAct = menu.addAction(tr("Export Selection (TSV)"));
-    unfreezeAct->setEnabled(freezeCols_ > 0);
+    unfreezeAct->setEnabled(freeze_cols_ > 0);
     QAction *ret = menu.exec(horizontalHeader()->viewport()->mapToGlobal(pos));
     if (!ret) return;
     if (ret == hideAct)
@@ -439,10 +522,10 @@ void xTableView::showHeaderMenu(const QPoint &pos) {
 void xTableView::toggleSortColumn(int logicalCol) {
     if (logicalCol < 0) return;
     Qt::SortOrder ord = Qt::AscendingOrder;
-    if (logicalCol == currentSortCol_)
-        ord = (currentSortOrd_ == Qt::AscendingOrder) ? Qt::DescendingOrder : Qt::AscendingOrder;
-    currentSortCol_ = logicalCol;
-    currentSortOrd_ = ord;
+    if (logicalCol == current_sort_col_)
+        ord = (current_sort_order_ == Qt::AscendingOrder) ? Qt::DescendingOrder : Qt::AscendingOrder;
+    current_sort_col_ = logicalCol;
+    current_sort_order_ = ord;
     sortBy(logicalCol, ord);
     horizontalHeader()->setSortIndicator(logicalCol, ord);
 }
@@ -496,98 +579,98 @@ void xTableView::removeSelectedCells() {
 }
 
 void xTableView::syncFrozen() {
-    if (freezeCols_ > 0 && !frozenColView_) {
+    if (freeze_cols_ > 0 && !frozen_col_view_) {
         createFrozenColView();
-    } else if (freezeCols_ == 0 && frozenColView_) {
-        frozenColView_->deleteLater();
-        frozenColView_ = nullptr;
+    } else if (freeze_cols_ == 0 && frozen_col_view_) {
+        frozen_col_view_->deleteLater();
+        frozen_col_view_ = nullptr;
     }
-    if (frozenColView_) {
+    if (frozen_col_view_) {
         for (int c = 0; c < model()->columnCount(); ++c) {
-            frozenColView_->setColumnHidden(c, c >= freezeCols_);
+            frozen_col_view_->setColumnHidden(c, c >= freeze_cols_);
         }
     }
-    if (freezeRows_ > 0 && !frozenRowView_) {
+    if (freeze_rows_ > 0 && !frozen_row_view_) {
         createFrozenRowView();
-    } else if (freezeRows_ == 0 && frozenRowView_) {
-        frozenRowView_->deleteLater();
-        frozenRowView_ = nullptr;
-        frozenRowProxy_ = nullptr;
+    } else if (freeze_rows_ == 0 && frozen_row_view_) {
+        frozen_row_view_->deleteLater();
+        frozen_row_view_ = nullptr;
+        frozen_row_filter_ = nullptr;
     }
-    if (frozenRowProxy_) {
-        frozenRowProxy_->setLimit(freezeRows_);
+    if (frozen_row_filter_) {
+        frozen_row_filter_->setLimit(freeze_rows_);
     }
     updateFrozenGeometry();
 }
 
 void xTableView::createFrozenColView() {
-    frozenColView_ = new QTableView(this);
-    frozenColView_->setModel(proxy_);
-    frozenColView_->setItemDelegate(itemDelegate());
-    frozenColView_->setFocusPolicy(Qt::NoFocus);
-    frozenColView_->verticalHeader()->hide();
-    frozenColView_->horizontalHeader()->setSectionResizeMode(QHeaderView::Fixed);
-    frozenColView_->setSelectionModel(selectionModel());
-    frozenColView_->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    frozenColView_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    frozen_col_view_ = new QTableView(this);
+    frozen_col_view_->setModel(proxy_);
+    frozen_col_view_->setItemDelegate(itemDelegate());
+    frozen_col_view_->setFocusPolicy(Qt::NoFocus);
+    frozen_col_view_->verticalHeader()->hide();
+    frozen_col_view_->horizontalHeader()->setSectionResizeMode(QHeaderView::Fixed);
+    frozen_col_view_->setSelectionModel(selectionModel());
+    frozen_col_view_->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    frozen_col_view_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     connect(verticalScrollBar(), &QAbstractSlider::valueChanged,
-            frozenColView_->verticalScrollBar(), &QAbstractSlider::setValue);
-    connect(frozenColView_->verticalScrollBar(), &QAbstractSlider::valueChanged,
+            frozen_col_view_->verticalScrollBar(), &QAbstractSlider::setValue);
+    connect(frozen_col_view_->verticalScrollBar(), &QAbstractSlider::valueChanged,
             verticalScrollBar(), &QAbstractSlider::setValue);
-    frozenColView_->show();
+    frozen_col_view_->show();
 }
 
 void xTableView::createFrozenRowView() {
-    frozenRowProxy_ = new xTableViewTopRowsFilter(this);
-    frozenRowProxy_->setSourceModel(proxy_);
-    frozenRowView_ = new QTableView(this);
-    frozenRowView_->setModel(frozenRowProxy_);
-    frozenRowView_->setItemDelegate(itemDelegate());
-    frozenRowView_->setFocusPolicy(Qt::NoFocus);
-    frozenRowView_->horizontalHeader()->hide();
-    frozenRowView_->verticalHeader()->hide();
-    frozenRowView_->setSelectionModel(selectionModel());
-    frozenRowView_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    frozenRowView_->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    frozen_row_filter_ = new xTableViewTopRowsFilter(this);
+    frozen_row_filter_->setSourceModel(proxy_);
+    frozen_row_view_ = new QTableView(this);
+    frozen_row_view_->setModel(frozen_row_filter_);
+    frozen_row_view_->setItemDelegate(itemDelegate());
+    frozen_row_view_->setFocusPolicy(Qt::NoFocus);
+    frozen_row_view_->horizontalHeader()->hide();
+    frozen_row_view_->verticalHeader()->hide();
+    frozen_row_view_->setSelectionModel(selectionModel());
+    frozen_row_view_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    frozen_row_view_->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     connect(horizontalScrollBar(), &QAbstractSlider::valueChanged,
-            frozenRowView_->horizontalScrollBar(), &QAbstractSlider::setValue);
-    connect(frozenRowView_->horizontalScrollBar(), &QAbstractSlider::valueChanged,
+            frozen_row_view_->horizontalScrollBar(), &QAbstractSlider::setValue);
+    connect(frozen_row_view_->horizontalScrollBar(), &QAbstractSlider::valueChanged,
             horizontalScrollBar(), &QAbstractSlider::setValue);
 
     // *** NEW: Connect main header resize signal to sync frozen row's column width ***
     connect(horizontalHeader(), &QHeaderView::sectionResized, this,
             [this](int logicalIndex, int, int newSize) {
-                if (frozenRowView_) {
-                    frozenRowView_->setColumnWidth(logicalIndex, newSize);
+                if (frozen_row_view_) {
+                    frozen_row_view_->setColumnWidth(logicalIndex, newSize);
                 }
             });
 
-    connect(selectionModel(), &QItemSelectionModel::selectionChanged, frozenColView_,
+    connect(selectionModel(), &QItemSelectionModel::selectionChanged, frozen_col_view_,
             static_cast<void (QWidget::*)()>(&QTableView::update));
 
-    frozenRowView_->show();
+    frozen_row_view_->show();
 }
 
 void xTableView::updateFrozenGeometry() {
-    if (frozenColView_) {
+    if (frozen_col_view_) {
         int w = 0;
-        for (int c = 0; c < freezeCols_; ++c) {
+        for (int c = 0; c < freeze_cols_; ++c) {
             if (!isColumnHidden(c)) {
                 w += columnWidth(c);
             }
         }
-        frozenColView_->setGeometry(verticalHeader()->width() + frameWidth(),
+        frozen_col_view_->setGeometry(verticalHeader()->width() + frameWidth(),
                                     frameWidth() + horizontalHeader()->height(), w,
                                     viewport()->height());
     }
-    if (frozenRowView_) {
+    if (frozen_row_view_) {
         int h = 0;
-        for (int r = 0; r < freezeRows_; ++r) {
+        for (int r = 0; r < freeze_rows_; ++r) {
             if (!isRowHidden(r)) {
                 h += rowHeight(r);
             }
         }
-        frozenRowView_->setGeometry(verticalHeader()->width() + frameWidth(),
+        frozen_row_view_->setGeometry(verticalHeader()->width() + frameWidth(),
                                     frameWidth() + horizontalHeader()->height(),
                                     viewport()->width(), h);
     }

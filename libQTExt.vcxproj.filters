@@ -34,5 +34,13 @@
     <QtMoc Include="xTableView.h">
       <Filter>Header Files</Filter>
     </QtMoc>
+    <QtMoc Include="xTableEditor.h">
+      <Filter>Header Files</Filter>
+    </QtMoc>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="xTableEditor.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
 </Project>
