@@ -521,13 +521,33 @@ void xTableView::showHeaderMenu(const QPoint &pos) {
 
 void xTableView::toggleSortColumn(int logicalCol) {
     if (logicalCol < 0) return;
-    Qt::SortOrder ord = Qt::AscendingOrder;
-    if (logicalCol == current_sort_col_)
-        ord = (current_sort_order_ == Qt::AscendingOrder) ? Qt::DescendingOrder : Qt::AscendingOrder;
-    current_sort_col_ = logicalCol;
-    current_sort_order_ = ord;
-    sortBy(logicalCol, ord);
-    horizontalHeader()->setSortIndicator(logicalCol, ord);
+
+    if (logicalCol == current_sort_col_) {
+        // 第2次或第3次点击同一个已排序的列
+        if (current_sort_order_ == Qt::AscendingOrder) {
+            // 第2次点击：从升序变为降序
+            current_sort_order_ = Qt::DescendingOrder;
+            sortBy(current_sort_col_, current_sort_order_);
+            horizontalHeader()->setSortIndicator(current_sort_col_, current_sort_order_);
+        } else {
+            // 第3次点击：从降序变为“未排序”
+            current_sort_col_ = -1;  // 重置当前排序列
+            // 调用 sort(-1) 来禁用代理模型的排序，恢复源模型顺序
+            proxy_->sort(-1);
+            // 隐藏表头的排序箭头
+            horizontalHeader()->setSortIndicatorShown(false);
+            // 再次设置以确保旧的箭头完全消失
+            horizontalHeader()->setSortIndicator(-1, Qt::AscendingOrder);
+        }
+    } else {
+        // 第1次点击一个新的列：总是升序
+        current_sort_col_ = logicalCol;
+        current_sort_order_ = Qt::AscendingOrder;
+        // 确保排序箭头是可见的
+        horizontalHeader()->setSortIndicatorShown(true);
+        sortBy(current_sort_col_, current_sort_order_);
+        horizontalHeader()->setSortIndicator(current_sort_col_, current_sort_order_);
+    }
 }
 
 void xTableView::copySelection() {
