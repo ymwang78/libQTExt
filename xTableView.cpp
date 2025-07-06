@@ -14,6 +14,11 @@
 #include <QKeyEvent>
 #include <QHeaderView>
 #include <QPainter>
+#include <QCheckBox>
+#include <QMouseEvent>
+#include <QStyle>
+#include <QStyleOption>
+#include <QSet>
 #include "xTableEditor.h"
 
 // custom role for conditional formatting
@@ -169,6 +174,10 @@ QWidget *xTableViewItemDelegate::createEditor(QWidget *parent, const QStyleOptio
     }
     QVariant v = idx.data(Qt::EditRole);
     switch (v.typeId()) {
+        case QMetaType::Bool: {
+            QCheckBox *e = new QCheckBox(parent);
+            return e;
+        }
         case QMetaType::Int: {
             QSpinBox *e = new QSpinBox(parent);
             e->setFrame(false);
@@ -205,7 +214,9 @@ void xTableViewItemDelegate::setEditorData(QWidget *editor, const QModelIndex &i
         return;
     }
     QVariant v = idx.data(Qt::EditRole);
-    if (v.typeId() == QMetaType::QDateTime) {
+    if (v.typeId() == QMetaType::Bool) {
+        qobject_cast<QCheckBox *>(editor)->setChecked(v.toBool());
+    } else if (v.typeId() == QMetaType::QDateTime) {
         qobject_cast<QDateTimeEdit *>(editor)->setDateTime(v.toDateTime());
     } else if (v.typeId() == QMetaType::Double) {
         qobject_cast<QDoubleSpinBox *>(editor)->setValue(v.toDouble());
@@ -224,7 +235,9 @@ void xTableViewItemDelegate::setModelData(QWidget *editor, QAbstractItemModel *m
     }
     else if (auto *cb = qobject_cast<QComboBox *>(editor)) {
         out = cb->currentText();
-    } else if (auto *sb = qobject_cast<QSpinBox *>(editor))
+    } else if (auto *chk = qobject_cast<QCheckBox *>(editor))
+        out = chk->isChecked();
+    else if (auto *sb = qobject_cast<QSpinBox *>(editor))
         out = sb->value();
     else if (auto *ds = qobject_cast<QDoubleSpinBox *>(editor))
         out = ds->value();
@@ -240,6 +253,23 @@ void xTableViewItemDelegate::paint(QPainter *p, const QStyleOptionViewItem &opt,
     QStyleOptionViewItem option = opt;
     initStyleOption(&option, idx);
     QVariant data = idx.data(Qt::EditRole); 
+    
+    // Handle bool type specially
+    if (data.typeId() == QMetaType::Bool) {
+        QStyleOptionButton checkboxOpt;
+        checkboxOpt.rect = option.rect;
+        checkboxOpt.state = option.state;
+        checkboxOpt.state |= data.toBool() ? QStyle::State_On : QStyle::State_Off;
+        checkboxOpt.state |= QStyle::State_Enabled;
+        
+        // Center the checkbox
+        QSize checkboxSize = QApplication::style()->sizeFromContents(QStyle::CT_CheckBox, &checkboxOpt, QSize());
+        checkboxOpt.rect = QStyle::alignedRect(Qt::LeftToRight, Qt::AlignCenter, checkboxSize, option.rect);
+        
+        QApplication::style()->drawControl(QStyle::CE_CheckBox, &checkboxOpt, p);
+        return;
+    }
+    
     switch (static_cast<QMetaType::Type>(data.typeId())) {
         case QMetaType::Int:
         case QMetaType::UInt:
@@ -502,6 +532,14 @@ void xTableView::showHeaderMenu(const QPoint &pos) {
     QAction *freezeAct = menu.addAction(tr("Freeze To This Column"));
     QAction *unfreezeAct = menu.addAction(tr("Unfreeze Columns"));
     menu.addSeparator();
+    
+    // Add bool column type menu
+    QAction *setBoolAct = menu.addAction(tr("Set as Bool Column"));
+    QAction *unsetBoolAct = menu.addAction(tr("Unset Bool Column"));
+    setBoolAct->setEnabled(!isBoolColumn(column));
+    unsetBoolAct->setEnabled(isBoolColumn(column));
+    menu.addSeparator();
+    
     QAction *exportAct = menu.addAction(tr("Export Selection (TSV)"));
     unfreezeAct->setEnabled(freeze_cols_ > 0);
     QAction *ret = menu.exec(horizontalHeader()->viewport()->mapToGlobal(pos));
@@ -514,6 +552,10 @@ void xTableView::showHeaderMenu(const QPoint &pos) {
         freezeLeftColumns(column + 1);
     } else if (ret == unfreezeAct) {
         freezeLeftColumns(0);
+    } else if (ret == setBoolAct) {
+        setBoolColumn(column, true);
+    } else if (ret == unsetBoolAct) {
+        setBoolColumn(column, false);
     } else if (ret == exportAct) {
         copySelection();
     }
@@ -695,3 +737,318 @@ void xTableView::updateFrozenGeometry() {
                                     viewport()->width(), h);
     }
 }
+
+// Bool column management implementation
+void xTableView::setBoolColumn(int column, bool enabled) {
+    if (enabled) {
+        if (!bool_columns_.contains(column)) {
+            bool_columns_.insert(column);
+            setupBoolColumnHeader(column);
+        }
+    } else {
+        if (bool_columns_.contains(column)) {
+            bool_columns_.remove(column);
+            removeBoolColumnHeader(column);
+        }
+    }
+}
+
+bool xTableView::isBoolColumn(int column) const {
+    return bool_columns_.contains(column);
+}
+
+QSet<int> xTableView::getBoolColumns() const {
+    return bool_columns_;
+}
+
+void xTableView::setupBoolColumnHeader(int column) {
+    if (!model()) return;
+    
+    QString headerText = model()->headerData(column, Qt::Horizontal, Qt::DisplayRole).toString();
+    auto* header = new xTableViewBoolHeader(headerText, this);
+    
+    // Calculate initial state
+    Qt::CheckState state = calculateBoolColumnState(column);
+    header->setCheckState(state);
+    
+    // Connect signals
+    connect(header, &xTableViewBoolHeader::checkStateChanged, this,
+            [this, column](Qt::CheckState state) {
+                onHeaderCheckboxToggled(column, state);
+            });
+    
+    // Connect model data changes to update header state
+    connect(model(), &QAbstractItemModel::dataChanged, this,
+            [this, column](const QModelIndex& topLeft, const QModelIndex& bottomRight) {
+                if (topLeft.column() <= column && column <= bottomRight.column()) {
+                    updateBoolColumnHeaderState(column);
+                }
+            });
+    
+    // Store and position the header
+    bool_column_headers_[column] = header;
+    horizontalHeader()->setSectionWidget(column, header);
+}
+
+void xTableView::removeBoolColumnHeader(int column) {
+    auto it = bool_column_headers_.find(column);
+    if (it != bool_column_headers_.end()) {
+        QWidget* header = it.value();
+        bool_column_headers_.erase(it);
+        
+        horizontalHeader()->setSectionWidget(column, nullptr);
+        header->deleteLater();
+    }
+    
+    // Also clean up memory state
+    bool_column_memory_states_.remove(column);
+}
+
+Qt::CheckState xTableView::calculateBoolColumnState(int column) const {
+    if (!model()) return Qt::Unchecked;
+    
+    int totalRows = model()->rowCount();
+    if (totalRows == 0) return Qt::Unchecked;
+    
+    int checkedCount = 0;
+    int validCount = 0;
+    
+    for (int row = 0; row < totalRows; ++row) {
+        QModelIndex idx = model()->index(row, column);
+        if (idx.isValid()) {
+            QVariant data = idx.data(Qt::EditRole);
+            if (data.typeId() == QMetaType::Bool) {
+                validCount++;
+                if (data.toBool()) {
+                    checkedCount++;
+                }
+            }
+        }
+    }
+    
+    if (validCount == 0) return Qt::Unchecked;
+    if (checkedCount == 0) return Qt::Unchecked;
+    if (checkedCount == validCount) return Qt::Checked;
+    return Qt::PartiallyChecked;
+}
+
+void xTableView::onHeaderCheckboxToggled(int column, Qt::CheckState state) {
+    if (!model()) return;
+    
+    // Get current state before any changes
+    Qt::CheckState currentState = calculateBoolColumnState(column);
+    
+    if (currentState == Qt::PartiallyChecked && state == Qt::Checked) {
+        // Save current state as memory before changing to all checked
+        saveBoolColumnMemoryState(column);
+    }
+    
+    bool newValue;
+    bool shouldSetAll = true;
+    
+    switch (state) {
+        case Qt::Checked:
+            newValue = true;
+            break;
+        case Qt::Unchecked:
+            newValue = false;
+            break;
+        case Qt::PartiallyChecked:
+            // Restore to previous memory state
+            restoreBoolColumnMemoryState(column);
+            shouldSetAll = false;
+            break;
+    }
+    
+    if (shouldSetAll) {
+        // Update all rows in this column
+        int totalRows = model()->rowCount();
+        for (int row = 0; row < totalRows; ++row) {
+            QModelIndex idx = model()->index(row, column);
+            if (idx.isValid() && (idx.flags() & Qt::ItemIsEditable)) {
+                QVariant data = idx.data(Qt::EditRole);
+                if (data.typeId() == QMetaType::Bool) {
+                    model()->setData(idx, newValue, Qt::EditRole);
+                }
+            }
+        }
+    }
+}
+
+void xTableView::updateBoolColumnHeaderState(int column) {
+    auto it = bool_column_headers_.find(column);
+    if (it != bool_column_headers_.end()) {
+        auto* header = qobject_cast<xTableViewBoolHeader*>(it.value());
+        if (header) {
+            Qt::CheckState state = calculateBoolColumnState(column);
+            header->setCheckState(state);
+        }
+    }
+}
+
+void xTableView::saveBoolColumnMemoryState(int column) {
+    if (!model()) return;
+    
+    QVector<bool> states;
+    int totalRows = model()->rowCount();
+    
+    for (int row = 0; row < totalRows; ++row) {
+        QModelIndex idx = model()->index(row, column);
+        if (idx.isValid()) {
+            QVariant data = idx.data(Qt::EditRole);
+            if (data.typeId() == QMetaType::Bool) {
+                states.append(data.toBool());
+            } else {
+                states.append(false); // default for non-bool items
+            }
+        } else {
+            states.append(false);
+        }
+    }
+    
+    bool_column_memory_states_[column] = states;
+}
+
+void xTableView::restoreBoolColumnMemoryState(int column) {
+    if (!model()) return;
+    
+    auto it = bool_column_memory_states_.find(column);
+    if (it == bool_column_memory_states_.end()) {
+        return; // No memory state saved
+    }
+    
+    const QVector<bool>& states = it.value();
+    int totalRows = model()->rowCount();
+    int stateCount = states.size();
+    
+    for (int row = 0; row < totalRows && row < stateCount; ++row) {
+        QModelIndex idx = model()->index(row, column);
+        if (idx.isValid() && (idx.flags() & Qt::ItemIsEditable)) {
+            QVariant data = idx.data(Qt::EditRole);
+            if (data.typeId() == QMetaType::Bool) {
+                model()->setData(idx, states[row], Qt::EditRole);
+            }
+        }
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+// xTableViewBoolHeader implementation
+
+xTableViewBoolHeader::xTableViewBoolHeader(const QString& title, QWidget* parent)
+    : QWidget(parent), title_(title), checkState_(Qt::Unchecked), pressed_(false) {
+    setFixedHeight(25);
+    setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+}
+
+void xTableViewBoolHeader::setCheckState(Qt::CheckState state) {
+    if (checkState_ != state) {
+        checkState_ = state;
+        update();
+    }
+}
+
+Qt::CheckState xTableViewBoolHeader::checkState() const {
+    return checkState_;
+}
+
+void xTableViewBoolHeader::paintEvent(QPaintEvent* event) {
+    Q_UNUSED(event);
+    
+    QPainter painter(this);
+    painter.setRenderHint(QPainter::Antialiasing);
+    
+    QRect rect = this->rect();
+    
+    // Draw background like standard header
+    QStyleOptionHeader headerOpt;
+    headerOpt.rect = rect;
+    headerOpt.state = QStyle::State_Enabled | QStyle::State_Raised;
+    headerOpt.position = QStyleOptionHeader::Middle;
+    headerOpt.orientation = Qt::Horizontal;
+    style()->drawControl(QStyle::CE_Header, &headerOpt, &painter, this);
+    
+    // Calculate checkbox and text areas
+    checkBoxRect_ = calculateCheckBoxRect();
+    textRect_ = calculateTextRect();
+    
+    // Draw checkbox
+    QStyleOptionButton checkboxOpt;
+    checkboxOpt.rect = checkBoxRect_;
+    checkboxOpt.state = QStyle::State_Enabled;
+    
+    switch (checkState_) {
+        case Qt::Checked:
+            checkboxOpt.state |= QStyle::State_On;
+            break;
+        case Qt::Unchecked:
+            checkboxOpt.state |= QStyle::State_Off;
+            break;
+        case Qt::PartiallyChecked:
+            checkboxOpt.state |= QStyle::State_NoChange;
+            break;
+    }
+    
+    if (pressed_) {
+        checkboxOpt.state |= QStyle::State_Sunken;
+    }
+    
+    style()->drawControl(QStyle::CE_CheckBox, &checkboxOpt, &painter, this);
+    
+    // Draw text
+    painter.setPen(palette().color(QPalette::WindowText));
+    painter.drawText(textRect_, Qt::AlignLeft | Qt::AlignVCenter, title_);
+}
+
+void xTableViewBoolHeader::mousePressEvent(QMouseEvent* event) {
+    if (event->button() == Qt::LeftButton && checkBoxRect_.contains(event->pos())) {
+        pressed_ = true;
+        update();
+    }
+    QWidget::mousePressEvent(event);
+}
+
+void xTableViewBoolHeader::mouseReleaseEvent(QMouseEvent* event) {
+    if (pressed_ && event->button() == Qt::LeftButton && checkBoxRect_.contains(event->pos())) {
+        updateCheckState();
+        emit checkStateChanged(checkState_);
+    }
+    pressed_ = false;
+    update();
+    QWidget::mouseReleaseEvent(event);
+}
+
+QSize xTableViewBoolHeader::sizeHint() const {
+    QFontMetrics fm(font());
+    int textWidth = fm.horizontalAdvance(title_);
+    int checkboxWidth = style()->pixelMetric(QStyle::PM_IndicatorWidth);
+    return QSize(checkboxWidth + 4 + textWidth + 8, 25);
+}
+
+void xTableViewBoolHeader::updateCheckState() {
+    switch (checkState_) {
+        case Qt::Unchecked:
+            checkState_ = Qt::Checked;
+            break;
+        case Qt::Checked:
+            checkState_ = Qt::Unchecked;
+            break;
+        case Qt::PartiallyChecked:
+            checkState_ = Qt::Checked;
+            break;
+    }
+}
+
+QRect xTableViewBoolHeader::calculateCheckBoxRect() const {
+    int checkboxSize = style()->pixelMetric(QStyle::PM_IndicatorWidth);
+    int y = (height() - checkboxSize) / 2;
+    return QRect(4, y, checkboxSize, checkboxSize);
+}
+
+QRect xTableViewBoolHeader::calculateTextRect() const {
+    int checkboxWidth = style()->pixelMetric(QStyle::PM_IndicatorWidth);
+    int textX = 4 + checkboxWidth + 4;
+    return QRect(textX, 0, width() - textX - 4, height());
+}
+
+#include "xTableView.moc"

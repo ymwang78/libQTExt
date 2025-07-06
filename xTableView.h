@@ -23,11 +23,18 @@
 #include <QtWidgets>
 #include <QFont>
 #include <QAbstractTableModel>
+#include <QSet>
+#include <QMap>
+#include <QVector>
+#include <QPaintEvent>
+#include <QMouseEvent>
 #include <optional>
 
 class QAbstractItemModel;
 
 class QSortFilterProxyModel;
+
+class xTableViewBoolHeader;
 
 struct xTableViewFilterRule {
     int column = -1;           // which column; -1 == global (not used yet)
@@ -156,6 +163,9 @@ class xTableView : public QTableView {
     Qt::SortOrder current_sort_order_ = Qt::AscendingOrder;
     bool is_stretch_to_fill_ = false;
     QList<int> column_width_ratios_;
+    QSet<int> bool_columns_;
+    QMap<int, QWidget*> bool_column_headers_;
+    QMap<int, QVector<bool>> bool_column_memory_states_;
 
   public:
 
@@ -163,6 +173,8 @@ class xTableView : public QTableView {
     static constexpr int ComboBoxItemsRole = Qt::UserRole + 102;
     static constexpr int StringListEditRole = Qt::UserRole + 103; 
     static constexpr int StringListDialogFactoryRole = Qt::UserRole + 104;
+    static constexpr int BoolColumnRole = Qt::UserRole + 105;
+    static constexpr int BoolColumnStateRole = Qt::UserRole + 106;
 
     explicit xTableView(QWidget *parent = nullptr);
 
@@ -197,6 +209,11 @@ class xTableView : public QTableView {
     using StringListDialogFactory = std::function<std::optional<QStringList>(
         QWidget *, const QStringList &)>;
 
+    // Bool column management
+    void setBoolColumn(int column, bool enabled);
+    bool isBoolColumn(int column) const;
+    QSet<int> getBoolColumns() const;
+
   signals:
 
     void findRequested();
@@ -216,6 +233,10 @@ class xTableView : public QTableView {
 
     void toggleSortColumn(int logicalCol);
 
+    void onHeaderCheckboxToggled(int column, Qt::CheckState state);
+
+    void updateBoolColumnHeaderState(int column);
+
   private:
     // Copy / Paste / Delete --------------------------------------------------------------
 
@@ -234,4 +255,46 @@ class xTableView : public QTableView {
     void createFrozenRowView();
 
     void updateFrozenGeometry();
+
+    void setupBoolColumnHeader(int column);
+
+    void removeBoolColumnHeader(int column);
+
+    Qt::CheckState calculateBoolColumnState(int column) const;
+
+    void saveBoolColumnMemoryState(int column);
+
+    void restoreBoolColumnMemoryState(int column);
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+class xTableViewBoolHeader : public QWidget {
+    Q_OBJECT
+
+public:
+    explicit xTableViewBoolHeader(const QString& title, QWidget* parent = nullptr);
+
+    void setCheckState(Qt::CheckState state);
+    Qt::CheckState checkState() const;
+
+signals:
+    void checkStateChanged(Qt::CheckState state);
+
+protected:
+    void paintEvent(QPaintEvent* event) override;
+    void mousePressEvent(QMouseEvent* event) override;
+    void mouseReleaseEvent(QMouseEvent* event) override;
+    QSize sizeHint() const override;
+
+private:
+    QString title_;
+    Qt::CheckState checkState_;
+    QRect checkBoxRect_;
+    QRect textRect_;
+    bool pressed_;
+
+    void updateCheckState();
+    QRect calculateCheckBoxRect() const;
+    QRect calculateTextRect() const;
 };
