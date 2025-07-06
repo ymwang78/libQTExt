@@ -36,6 +36,8 @@ class QSortFilterProxyModel;
 
 class xTableViewBoolHeader;
 
+class xCheckableHeaderView;
+
 struct xTableViewFilterRule {
     int column = -1;           // which column; -1 == global (not used yet)
     QRegularExpression regex;  // regex match (string values)
@@ -86,6 +88,8 @@ class xTableViewItemDelegate : public QStyledItemDelegate {
 
     void setModelData(QWidget *editor, QAbstractItemModel *mdl,
                       const QModelIndex &idx) const override;
+
+    QString displayText(const QVariant &value, const QLocale &locale) const override;
 
     void paint(QPainter *p, const QStyleOptionViewItem &opt, const QModelIndex &idx) const override;
 
@@ -164,8 +168,8 @@ class xTableView : public QTableView {
     bool is_stretch_to_fill_ = false;
     QList<int> column_width_ratios_;
     QSet<int> bool_columns_;
-    QMap<int, QWidget*> bool_column_headers_;
     QMap<int, QVector<bool>> bool_column_memory_states_;
+    xCheckableHeaderView *checkable_header_;
 
   public:
 
@@ -235,8 +239,6 @@ class xTableView : public QTableView {
 
     void onHeaderCheckboxToggled(int column, Qt::CheckState state);
 
-    void updateBoolColumnHeaderState(int column);
-
   private:
     // Copy / Paste / Delete --------------------------------------------------------------
 
@@ -255,10 +257,8 @@ class xTableView : public QTableView {
     void createFrozenRowView();
 
     void updateFrozenGeometry();
-
-    void setupBoolColumnHeader(int column);
-
-    void removeBoolColumnHeader(int column);
+    
+    void updateBoolColumnHeaderState(int column);
 
     Qt::CheckState calculateBoolColumnState(int column) const;
 
