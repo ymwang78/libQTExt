@@ -29,6 +29,9 @@
     <ClCompile Include="xTableView.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClInclude Include="xTreeItem.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <QtMoc Include="xTableView.h">
@@ -40,12 +43,27 @@
     <QtMoc Include="xTableHeader.h">
       <Filter>Header Files</Filter>
     </QtMoc>
+    <QtMoc Include="xItemDelegate.h">
+      <Filter>Header Files</Filter>
+    </QtMoc>
+    <QtMoc Include="xTreeView.h">
+      <Filter>Header Files</Filter>
+    </QtMoc>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="xTableEditor.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="xTableHeader.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="xTreeItem.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="xItemDelegate.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="xTreeView.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

@@ -22,7 +22,6 @@
 #include <QAbstractTableModel>
 #include <QtWidgets>
 #include <QFont>
-#include <QAbstractTableModel>
 #include <QSet>
 #include <QMap>
 #include <QVector>
@@ -73,29 +72,6 @@ class xTableViewSortFilter : public QSortFilterProxyModel {
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 class xTableViewTopRowsFilter;
-
-///////////////////////////////////////////////////////////////////////////////////////////////////
-
-class xTableViewItemDelegate : public QStyledItemDelegate {
-    Q_OBJECT
-  public:
-    explicit xTableViewItemDelegate(QObject *parent = nullptr);
-
-    QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &opt,
-                          const QModelIndex &idx) const override;
-
-    void setEditorData(QWidget *editor, const QModelIndex &idx) const override;
-
-    void setModelData(QWidget *editor, QAbstractItemModel *mdl,
-                      const QModelIndex &idx) const override;
-
-    QString displayText(const QVariant &value, const QLocale &locale) const override;
-
-    void paint(QPainter *p, const QStyleOptionViewItem &opt, const QModelIndex &idx) const override;
-
-  private slots:
-    void commitAndCloseEditor();
-};
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
