@@ -15,11 +15,11 @@
 
 // 构造函数接收工厂函数
 xTableStringListEditor::xTableStringListEditor(xTableView::StringListDialogFactory factory, QWidget* parent)
-    : QWidget(parent), dialogFactory_(std::move(factory)) {
-    lineEdit_ = new QLineEdit(this);
-    lineEdit_->setFrame(false);  // 保持文本框无边框，与单元格融为一体
-    lineEdit_->setReadOnly(true);
-    lineEdit_->setAlignment(Qt::AlignVCenter);
+    : QWidget(parent), dialog_factory_(std::move(factory)) {
+    line_edit_ = new QLineEdit(this);
+    line_edit_->setFrame(false);  // 保持文本框无边框，与单元格融为一体
+    line_edit_->setReadOnly(true);
+    line_edit_->setAlignment(Qt::AlignVCenter);
 
     button_ = new QPushButton("...", this);
 
@@ -49,7 +49,7 @@ xTableStringListEditor::xTableStringListEditor(xTableView::StringListDialogFacto
     // 3. 边距设置为0，让编辑器能完全填满单元格，看起来更原生
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(1);  // 在文本框和按钮之间留出1像素的微小间距
-    layout->addWidget(lineEdit_);
+    layout->addWidget(line_edit_);
     layout->addWidget(button_);  // 不再需要特殊对齐，布局会自动处理
     setLayout(layout);
 
@@ -58,17 +58,17 @@ xTableStringListEditor::xTableStringListEditor(xTableView::StringListDialogFacto
 }
 
 void xTableStringListEditor::setStringList(const QStringList& list) {
-    currentList_ = list;
-    lineEdit_->setText(currentList_.join(", "));
+    current_list_ = list;
+    line_edit_->setText(current_list_.join(", "));
 }
 
-QStringList xTableStringListEditor::getStringList() const { return currentList_; }
+QStringList xTableStringListEditor::getStringList() const { return current_list_; }
 
 void xTableStringListEditor::onButtonClicked() {
 
-    if (dialogFactory_) {
+    if (dialog_factory_) {
         // 调用工厂函数，它会创建、执行对话框并返回结果
-        std::optional<QStringList> result = dialogFactory_(this, currentList_);
+        std::optional<QStringList> result = dialog_factory_(this, current_list_);
 
         // 如果用户点击了“OK”并且有返回结果
         if (result.has_value()) {

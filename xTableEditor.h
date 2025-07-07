@@ -7,7 +7,7 @@
 //  This file is a part of project libQTExt.
 //  Copyright (C) 2025 - All Rights Reserved
 // ***************************************************************
-// 
+//
 // ***************************************************************
 
 #include <QWidget>
@@ -21,25 +21,22 @@ class QPushButton;
 class xTableStringListEditor : public QWidget {
     Q_OBJECT
   public:
-
     explicit xTableStringListEditor(xTableView::StringListDialogFactory factory,
                                     QWidget* parent = nullptr);
 
-    // 设置和获取当前值 (QStringList)
     void setStringList(const QStringList& list);
 
     QStringList getStringList() const;
 
   signals:
-    // 当编辑完成时（即对话框点击OK后），发射此信号
     void editingFinished();
 
   private slots:
     void onButtonClicked();
 
   private:
-    QLineEdit* lineEdit_;
+    QLineEdit* line_edit_;
     QPushButton* button_;
-    QStringList currentList_;
-    xTableView::StringListDialogFactory dialogFactory_;
+    QStringList current_list_;
+    xTableView::StringListDialogFactory dialog_factory_;
 };

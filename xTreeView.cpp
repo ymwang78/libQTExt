@@ -19,7 +19,7 @@ xTreeView::xTreeView(QWidget* parent) : QTreeView(parent) {
 }
 
 void xTreeView::setColumnWidthRatios(const QList<int>& ratios) {
-    m_widthRatios = ratios;
+    width_ratios_ = ratios;
     // 设置后立即应用一次
     applyRatios();
 }
@@ -33,14 +33,14 @@ void xTreeView::resizeEvent(QResizeEvent* event) {
 }
 
 void xTreeView::applyRatios() {
-    if (m_widthRatios.isEmpty() || !model()) {
+    if (width_ratios_.isEmpty() || !model()) {
         return;
     }
 
     // 计算总的可用宽度（减去滚动条等的宽度）
     int totalWidth = viewport()->width();
     int totalRatio = 0;
-    for (int ratio : m_widthRatios) {
+    for (int ratio : width_ratios_) {
         totalRatio += ratio;
     }
 
@@ -49,9 +49,9 @@ void xTreeView::applyRatios() {
     }
 
     // 根据比例计算并设置每一列的宽度
-    for (int i = 0; i < m_widthRatios.size(); ++i) {
+    for (int i = 0; i < width_ratios_.size(); ++i) {
         if (i < model()->columnCount()) {
-            int columnWidth = (totalWidth * m_widthRatios[i]) / totalRatio;
+            int columnWidth = (totalWidth * width_ratios_[i]) / totalRatio;
             setColumnWidth(i, columnWidth);
         }
     }

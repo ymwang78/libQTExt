@@ -11,33 +11,33 @@
 #include "xTreeItem.h"
 
 xTreeItem::xTreeItem(const QList<QVariant> &data, xTreeItem *parent)
-    : m_itemData(data), m_parentItem(parent) {}
+    : item_data_(data), parent_item_(parent) {}
 
 xTreeItem::~xTreeItem() {
     // 递归删除所有子节点，防止内存泄漏
-    qDeleteAll(m_childItems);
+    qDeleteAll(chile_items_);
 }
 
-void xTreeItem::appendChild(xTreeItem *child) { m_childItems.append(child); }
+void xTreeItem::appendChild(xTreeItem *child) { chile_items_.append(child); }
 
 xTreeItem *xTreeItem::child(int row) {
-    if (row < 0 || row >= m_childItems.size()) return nullptr;
-    return m_childItems.at(row);
+    if (row < 0 || row >= chile_items_.size()) return nullptr;
+    return chile_items_.at(row);
 }
 
-int xTreeItem::childCount() const { return m_childItems.count(); }
+int xTreeItem::childCount() const { return chile_items_.count(); }
 
-int xTreeItem::columnCount() const { return m_itemData.count(); }
+int xTreeItem::columnCount() const { return item_data_.count(); }
 
 QVariant xTreeItem::data(int column) const {
-    if (column < 0 || column >= m_itemData.size()) return QVariant();
-    return m_itemData.at(column);
+    if (column < 0 || column >= item_data_.size()) return QVariant();
+    return item_data_.at(column);
 }
 
-xTreeItem *xTreeItem::parentItem() { return m_parentItem; }
+xTreeItem *xTreeItem::parentItem() { return parent_item_; }
 
 int xTreeItem::row() const {
-    if (m_parentItem) return m_parentItem->m_childItems.indexOf(const_cast<xTreeItem *>(this));
+    if (parent_item_) return parent_item_->chile_items_.indexOf(const_cast<xTreeItem *>(this));
 
     // 如果没有父节点，说明是根节点下的顶层节点，行号即为它在父节点子列表中的位置
     return 0;

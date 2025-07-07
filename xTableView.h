@@ -76,56 +76,50 @@ class xTableViewTopRowsFilter;
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 class xAbstractTableModel : public QAbstractTableModel {
-    friend class xTableViewSortFilter;  // 允许 xTableViewSortFilter 访问私有成员baseRowCount
+    friend class xTableViewSortFilter;  // Allow xTableViewSortFilter to visit private member:
+                                        // baseRowCount
 
     Q_OBJECT
-    bool append_mode_ = false;  // 控制是否开启追加模式的标志
+    bool append_mode_ = false;
 
   public:
-    explicit xAbstractTableModel(QObject* parent = nullptr);
+    explicit xAbstractTableModel(QObject *parent = nullptr);
 
     ~xAbstractTableModel() override = default;
 
     bool appendMode() const { return append_mode_; }
 
-    // --- 公共接口 ---
-public slots:
-    // 设置是否开启追加模式
+  public slots:
+
     void setAppendMode(bool enabled);
 
-public:
-    
-    // --- QAbstractTableModel 的重写函数 ---
-    // 这些函数封装了通用逻辑，并调用子类必须实现的 base/insert 函数
-    
-    int rowCount(const QModelIndex& parent = QModelIndex()) const override final;
-    
-    QVariant data(const QModelIndex& index, int role = Qt::DisplayRole) const override final;
-    
-    Qt::ItemFlags flags(const QModelIndex& index) const override final;
-    
-    bool setData(const QModelIndex& index, const QVariant& value, int role = Qt::EditRole) override final;
+  public:
+    int rowCount(const QModelIndex &parent = QModelIndex()) const override final;
 
-protected:
-    // --- 子类必须实现的纯虚函数 ---
+    QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override final;
 
-    // 返回不包含占位符的“真实”行数
+    Qt::ItemFlags flags(const QModelIndex &index) const override final;
+
+    bool setData(const QModelIndex &index, const QVariant &value,
+                 int role = Qt::EditRole) override final;
+
+  protected:
+    // return the real number of rows in the base data source.
+
     virtual int baseRowCount(const QModelIndex &parent = QModelIndex()) const = 0;
 
-    // 提供“真实”行的数据
-    virtual QVariant baseData(const QModelIndex& index, int role) const = 0;
+    virtual QVariant baseData(const QModelIndex &index, int role) const = 0;
 
-    // 提供“真实”行的标志
-    virtual Qt::ItemFlags baseFlags(const QModelIndex& index) const = 0;
+    virtual Qt::ItemFlags baseFlags(const QModelIndex &index) const = 0;
 
-    // 设置“真实”行的数据
-    virtual bool baseSetData(const QModelIndex& index, const QVariant& value, int role) = 0;
+    virtual bool baseSetData(const QModelIndex &index, const QVariant &value, int role) = 0;
 
-    // 在指定行位置，向底层数据源中插入一条新的空记录。成功返回 true。
-    // 这个函数只负责在数据结构中增加记录，begin/endInsertRows由基类管理。
+    // return true if new row is inserted successfully.
+    // this function is called by the model when a new row is inserted.
+    // begin/endInsertRows managed by the model, so you don't need to call them here.
     virtual bool insertNewBaseRow(int row) = 0;
 
-private:
+  private:
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -139,7 +133,7 @@ class xTableView : public QTableView {
     xTableViewTopRowsFilter *frozen_col_filter_ = nullptr;
     int freeze_cols_ = 0;
     int freeze_rows_ = 0;
-    int current_sort_col_ = -1;  //  -1 表示当前无排序
+    int current_sort_col_ = -1;  //  -1 if no column is sorted
     Qt::SortOrder current_sort_order_ = Qt::AscendingOrder;
     bool is_stretch_to_fill_ = false;
     QList<int> column_width_ratios_;
@@ -148,10 +142,9 @@ class xTableView : public QTableView {
     xCheckableHeaderView *checkable_header_;
 
   public:
-
     static constexpr int ConditionRole = Qt::UserRole + 101;
     static constexpr int ComboBoxItemsRole = Qt::UserRole + 102;
-    static constexpr int StringListEditRole = Qt::UserRole + 103; 
+    static constexpr int StringListEditRole = Qt::UserRole + 103;
     static constexpr int StringListDialogFactoryRole = Qt::UserRole + 104;
     static constexpr int BoolColumnRole = Qt::UserRole + 105;
     static constexpr int BoolColumnStateRole = Qt::UserRole + 106;
@@ -182,12 +175,12 @@ class xTableView : public QTableView {
     void freezeTopRows(int n);
 
     // Special Item Editors ---------------------------------------------------------------
-   
-    // 配合 xTableStringListEditor 
-    // 函数签名：(父窗口, 当前已选项) -> std::optional<选择结果>
-    // 使用 std::optional 来优雅地处理用户点击“取消”的情况
-    using StringListDialogFactory = std::function<std::optional<QStringList>(
-        QWidget *, const QStringList &)>;
+
+    // coworking with xTableStringListEditor
+    // function signature: (parent, current selection) -> std::optional<selection result>
+    // using std::optional to handle user clicking "Cancel" gracefully
+    using StringListDialogFactory =
+        std::function<std::optional<QStringList>(QWidget *, const QStringList &)>;
 
     // Bool column management
     void setBoolColumn(int column, bool enabled);
@@ -233,7 +226,7 @@ class xTableView : public QTableView {
     void createFrozenRowView();
 
     void updateFrozenGeometry();
-    
+
     void updateBoolColumnHeaderState(int column);
 
     Qt::CheckState calculateBoolColumnState(int column) const;
@@ -248,29 +241,35 @@ class xTableView : public QTableView {
 class xTableViewBoolHeader : public QWidget {
     Q_OBJECT
 
-public:
-    explicit xTableViewBoolHeader(const QString& title, QWidget* parent = nullptr);
-
-    void setCheckState(Qt::CheckState state);
-    Qt::CheckState checkState() const;
-
-signals:
-    void checkStateChanged(Qt::CheckState state);
-
-protected:
-    void paintEvent(QPaintEvent* event) override;
-    void mousePressEvent(QMouseEvent* event) override;
-    void mouseReleaseEvent(QMouseEvent* event) override;
-    QSize sizeHint() const override;
-
-private:
     QString title_;
-    Qt::CheckState checkState_;
-    QRect checkBoxRect_;
-    QRect textRect_;
+    Qt::CheckState check_state_;
+    QRect checkbox_rect_;
+    QRect text_rect_;
     bool pressed_;
 
+  public:
+    explicit xTableViewBoolHeader(const QString &title, QWidget *parent = nullptr);
+
+    void setCheckState(Qt::CheckState state);
+
+    Qt::CheckState checkState() const;
+
+  signals:
+    void checkStateChanged(Qt::CheckState state);
+
+  protected:
+    void paintEvent(QPaintEvent *event) override;
+
+    void mousePressEvent(QMouseEvent *event) override;
+
+    void mouseReleaseEvent(QMouseEvent *event) override;
+
+    QSize sizeHint() const override;
+
+  private:
     void updateCheckState();
+
     QRect calculateCheckBoxRect() const;
+
     QRect calculateTextRect() const;
 };
