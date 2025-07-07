@@ -337,22 +337,28 @@ void xTableView::freezeTopRows(int n) {
 }
 
 void xTableView::keyPressEvent(QKeyEvent *ev) {
+
+    if ((ev->modifiers() & Qt::ControlModifier) && (ev->key() == Qt::Key_Delete)) {
+        // 同时按下了 Ctrl 键和 Delete 键, 删除整行
+        removeSelectedRows();
+        ev->accept();
+        return;
+    }
+
     if (ev->matches(QKeySequence::Copy)) {
         copySelection();
         ev->accept();
         return;
     }
-    if (ev->matches(QKeySequence::Paste)) {
+    else if (ev->matches(QKeySequence::Paste)) {
         paste();
         ev->accept();
         return;
-    }
-    if (ev->matches(QKeySequence::Delete)) {
+    } else if (ev->matches(QKeySequence::Delete)) {
         removeSelectedCells();
         ev->accept();
         return;
-    }
-    if (ev->matches(QKeySequence::Find)) {
+    } else if (ev->matches(QKeySequence::Find)) {
         emit findRequested();
         ev->accept();
         return;
@@ -506,6 +512,15 @@ void xTableView::removeSelectedCells() {
     for (const QModelIndex &idx : sel) {
         if (idx.isValid() && (idx.flags() & Qt::ItemIsEditable))
             model()->setData(idx, QVariant(), Qt::EditRole);
+    }
+}
+
+void xTableView::removeSelectedRows() {
+    auto sel = selectionModel()->selectedIndexes();
+    for (const QModelIndex &idx : sel) {
+        if (idx.isValid() && (idx.flags() & Qt::ItemIsEditable)) {
+            model()->removeRows(idx.row(), 1);
+        }
     }
 }
 

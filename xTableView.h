@@ -119,7 +119,6 @@ class xAbstractTableModel : public QAbstractTableModel {
     // begin/endInsertRows managed by the model, so you don't need to call them here.
     virtual bool insertNewBaseRow(int row) = 0;
 
-  private:
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -216,6 +215,8 @@ class xTableView : public QTableView {
     void paste();
 
     void removeSelectedCells();
+
+    void removeSelectedRows();
 
     // Freeze implementation -------------------------------------------------------------
 
