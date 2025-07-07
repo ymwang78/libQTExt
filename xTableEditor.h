@@ -20,6 +20,11 @@ class QPushButton;
 
 class xTableStringListEditor : public QWidget {
     Q_OBJECT
+    QLineEdit* line_edit_;
+    QPushButton* button_;
+    QStringList current_list_;
+    xTableView::StringListDialogFactory dialog_factory_;
+
   public:
     explicit xTableStringListEditor(xTableView::StringListDialogFactory factory,
                                     QWidget* parent = nullptr);
@@ -34,9 +39,4 @@ class xTableStringListEditor : public QWidget {
   private slots:
     void onButtonClicked();
 
-  private:
-    QLineEdit* line_edit_;
-    QPushButton* button_;
-    QStringList current_list_;
-    xTableView::StringListDialogFactory dialog_factory_;
 };
