@@ -49,6 +49,9 @@
     <QtMoc Include="xTreeView.h">
       <Filter>Header Files</Filter>
     </QtMoc>
+    <QtMoc Include="xDockWidget.h">
+      <Filter>Header Files</Filter>
+    </QtMoc>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="xTableEditor.cpp">
@@ -64,6 +67,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="xTreeView.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="xDockWidget.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

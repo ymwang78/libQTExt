@@ -98,12 +98,14 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="xDockWidget.cpp" />
     <ClCompile Include="xItemDelegate.cpp" />
     <ClCompile Include="xTreeItem.cpp" />
     <ClCompile Include="xTreeView.cpp" />
     <ClInclude Include="libqtext_global.h" />
     <QtMoc Include="xTreeView.h" />
     <QtMoc Include="xItemDelegate.h" />
+    <QtMoc Include="xDockWidget.h" />
     <ClInclude Include="xTreeItem.h" />
     <QtMoc Include="xTableHeader.h" />
     <QtMoc Include="xTableEditor.h" />
