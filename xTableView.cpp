@@ -266,8 +266,13 @@ xTableView::xTableView(QWidget *parent)
     horizontalHeader()->setSectionsClickable(true);
     connect(horizontalHeader(), &QHeaderView::sectionClicked, this, &xTableView::toggleSortColumn);
     horizontalHeader()->setSortIndicatorShown(true);
-
     horizontalHeader()->setContextMenuPolicy(Qt::CustomContextMenu);
+
+    // 设置表格字体为 Consolas, Microsoft YaHei
+    QFont tableFont;
+    tableFont.setFamily("Consolas, Microsoft YaHei");
+    setFont(tableFont);
+
     connect(horizontalHeader(), &QHeaderView::customContextMenuRequested, this,
             &xTableView::showHeaderMenu);
 
