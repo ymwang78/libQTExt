@@ -80,6 +80,8 @@ class xAbstractTableModel : public QAbstractTableModel {
                                         // baseRowCount
 
     Q_OBJECT
+
+  protected:
     bool append_mode_ = false;
 
   public:
@@ -100,8 +102,7 @@ class xAbstractTableModel : public QAbstractTableModel {
 
     Qt::ItemFlags flags(const QModelIndex &index) const override;
 
-    bool setData(const QModelIndex &index, const QVariant &value,
-                 int role = Qt::EditRole) override;
+    bool setData(const QModelIndex &index, const QVariant &value, int role = Qt::EditRole) override;
 
   protected:
     // return the real number of rows in the base data source.
@@ -118,7 +119,6 @@ class xAbstractTableModel : public QAbstractTableModel {
     // this function is called by the model when a new row is inserted.
     // begin/endInsertRows managed by the model, so you don't need to call them here.
     virtual bool insertNewBaseRow(int row) = 0;
-
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -147,6 +147,8 @@ class xTableView : public QTableView {
     static constexpr int StringListDialogFactoryRole = Qt::UserRole + 104;
     static constexpr int BoolColumnRole = Qt::UserRole + 105;
     static constexpr int BoolColumnStateRole = Qt::UserRole + 106;
+    static constexpr int StringMapRole = Qt::UserRole + 107;
+    static constexpr int StringMapDialogFactoryRole = Qt::UserRole + 108;
 
     explicit xTableView(QWidget *parent = nullptr);
 
