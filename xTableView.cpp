@@ -56,43 +56,34 @@ void xTableViewSortFilter::clearFilters() {
 
 bool xTableViewSortFilter::lessThan(const QModelIndex &source_left,
                                     const QModelIndex &source_right) const {
-
-        if (!source_left.isValid() || !source_right.isValid()) {
-            return false;
-        }
-    
-        auto source_model = qobject_cast<const xAbstractTableModel*>(sourceModel());
-        
-        // 检查是否开启了追加模式
-        if (source_model && source_model->appendMode()) {
-            int placeholderRow = source_model->baseRowCount();
-    
-            // 正确的做法：直接使用 source_left 和 source_right 的行号，因为它们已经是源模型的索引。
-            bool leftIsPlaceholder = (source_left.row() == placeholderRow);
-            bool rightIsPlaceholder = (source_right.row() == placeholderRow);
-    
-            // 如果两个索引中有一个是占位符行，则进入特殊处理逻辑
-            if (leftIsPlaceholder || rightIsPlaceholder) {
-                // 如果左边是占位符行
-                if (leftIsPlaceholder) {
-                    // 在降序时，占位符应视为“小于”真实行，以便排在最后，返回 true。
-                    // 在升序时，应视为“不小于”真实行，返回 false。
-                    return (sortOrder() == Qt::DescendingOrder);
-                }
-                
-                // 如果右边是占位符行
-                // (这里的逻辑与上面对称)
-                if (rightIsPlaceholder) {
-                    // 在升序时，真实行应视为“小于”占位符行，返回 true。
-                    // 在降序时，返回 false。
-                    return (sortOrder() == Qt::AscendingOrder);
-                }
-            }
-        }
-        
-        // 对于所有其他情况（两个都是真实数据行，或未开启追加模式），使用默认的 Qt 比较逻辑
+    // 首先，获取源模型，并检查是否开启了追加模式
+    auto source_model = qobject_cast<const xAbstractTableModel *>(sourceModel());
+    if (!source_model || !source_model->appendMode()) {
+        // 如果没有源模型或未开启追加模式，则使用默认的比较逻辑
         return QSortFilterProxyModel::lessThan(source_left, source_right);
+    }
+
+    // 获取占位符行的真实行号
+    int placeholderRow = source_model->baseRowCount();
+
+    // 判断左右两个比较项是否是占位符行
+    bool leftIsPlaceholder = (source_left.row() == placeholderRow);
+    bool rightIsPlaceholder = (source_right.row() == placeholderRow);
+    if (!leftIsPlaceholder && !rightIsPlaceholder)
+        return QSortFilterProxyModel::lessThan(source_left, source_right);
+    if (leftIsPlaceholder && rightIsPlaceholder) {
+        // 如果两边都是占位符行，则认为它们相等
+        return false;
+    }
+
+    if (sortOrder() == Qt::AscendingOrder) {
+        return rightIsPlaceholder;
+    }
+    else {
+        return leftIsPlaceholder;
+    }
 }
+
 
 bool xTableViewSortFilter::filterAcceptsRow(int sourceRow, const QModelIndex &sourceParent) const {
     auto source = qobject_cast<const xAbstractTableModel *>(sourceModel());
@@ -212,18 +203,17 @@ bool xAbstractTableModel::setData(const QModelIndex &index, const QVariant &valu
     if (append_mode_ && index.row() == realRowCount) {
         // 是占位符行，触发新增逻辑
 
-        // 1. 通知视图，即将在占位符的位置（即末尾）插入一个新行
-        beginInsertRows(QModelIndex(), realRowCount, realRowCount);
-
         // 2. 调用子类实现在底层数据源中创建一条空记录
         bool success = insertNewBaseRow(realRowCount);
-
-        // 3. 通知视图插入完成
-        endInsertRows();
 
         if (!success) {
             return false;  // 如果子类插入失败，则终止
         }
+        // 1. 通知视图，即将在占位符的位置（即末尾）插入一个新行
+        beginInsertRows(QModelIndex(), realRowCount, realRowCount);
+
+        // 3. 通知视图插入完成
+        endInsertRows();
 
         // 4. 现在 index 指向的已经是新创建的真实行了，
         //    我们调用子类的 baseSetData 来设置用户刚刚输入的值。
