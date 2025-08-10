@@ -11,6 +11,8 @@
 // ***************************************************************
 #include <QStyledItemDelegate>
 
+class QEvent;
+
 class xItemDelegate : public QStyledItemDelegate {
     Q_OBJECT
   public:
@@ -28,6 +30,8 @@ class xItemDelegate : public QStyledItemDelegate {
 
     void paint(QPainter *p, const QStyleOptionViewItem &opt, const QModelIndex &idx) const override;
 
+    bool editorEvent(QEvent *event, QAbstractItemModel *model, const QStyleOptionViewItem &option,
+                     const QModelIndex &index) override;
   private slots:
 
     void commitAndCloseEditor();

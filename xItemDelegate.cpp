@@ -6,7 +6,7 @@
 //  This file is a part of project libQTExt.
 //  Copyright (C) 2025 - All Rights Reserved
 // ***************************************************************
-// 
+//
 // ***************************************************************
 #include "xItemDelegate.h"
 #include "xTableEditor.h"
@@ -64,11 +64,10 @@ static QString formatScientific(double value) {
     return result;
 }
 
-
 xItemDelegate::xItemDelegate(QObject *parent) : QStyledItemDelegate(parent) {}
 
 QWidget *xItemDelegate::createEditor(QWidget *parent, const QStyleOptionViewItem &opt,
-                                              const QModelIndex &idx) const {
+                                     const QModelIndex &idx) const {
     Q_UNUSED(opt);
     if (idx.data(xTableView::StringListEditRole).toBool()) {
         QVariant factoryData = idx.data(xTableView::StringListDialogFactoryRole);
@@ -102,8 +101,14 @@ QWidget *xItemDelegate::createEditor(QWidget *parent, const QStyleOptionViewItem
     QVariant v = idx.data(Qt::EditRole);
     switch (v.typeId()) {
         case QMetaType::Bool: {
-            QCheckBox *e = new QCheckBox(parent);
-            return e;
+            auto *container = new QWidget(parent);
+            auto *layout = new QHBoxLayout(container);
+            auto *editor = new QCheckBox(container);
+            layout->addWidget(editor);
+            layout->setAlignment(editor, Qt::AlignCenter);
+            layout->setContentsMargins(0, 0, 0, 0);
+            container->setLayout(layout);
+            return container;
         }
         case QMetaType::Int: {
             QSpinBox *e = new QSpinBox(parent);
@@ -143,7 +148,6 @@ QWidget *xItemDelegate::createEditor(QWidget *parent, const QStyleOptionViewItem
 
 void xItemDelegate::setEditorData(QWidget *editor, const QModelIndex &idx) const {
     if (auto *stringListEditor = qobject_cast<xTableStringListEditor *>(editor)) {
-        // 从模型获取 QStringList 并设置给编辑器
         stringListEditor->setStringList(idx.data(Qt::EditRole).toStringList());
         return;
     }
@@ -151,38 +155,71 @@ void xItemDelegate::setEditorData(QWidget *editor, const QModelIndex &idx) const
         cb->setCurrentText(idx.data(Qt::DisplayRole).toString());
         return;
     }
+
     QVariant v = idx.data(Qt::EditRole);
-    if (v.typeId() == QMetaType::Bool) {
-        qobject_cast<QCheckBox *>(editor)->setChecked(v.toBool());
-    } else if (v.typeId() == QMetaType::QDateTime) {
-        qobject_cast<QDateTimeEdit *>(editor)->setDateTime(v.toDateTime());
-    } else if (v.typeId() == QMetaType::Double) {
-        qobject_cast<QLineEdit *>(editor)->setText(v.toString());
-    } else if (v.typeId() == QMetaType::Int) {
-        qobject_cast<QSpinBox *>(editor)->setValue(v.toInt());
-    } else {
-        qobject_cast<QLineEdit *>(editor)->setText(v.toString());
+    switch (v.typeId()) {
+        case QMetaType::Bool: {
+            QCheckBox *chk = editor->findChild<QCheckBox *>();
+            if (chk) {
+                chk->setChecked(v.toBool());
+            }
+            break;
+        }
+        case QMetaType::QDateTime:
+            qobject_cast<QDateTimeEdit *>(editor)->setDateTime(v.toDateTime());
+            break;
+        case QMetaType::Double:
+            qobject_cast<QLineEdit *>(editor)->setText(v.toString());
+            break;
+        case QMetaType::Int:
+            qobject_cast<QSpinBox *>(editor)->setValue(v.toInt());
+            break;
+        default:
+            // 默认处理，包括字符串
+            if (auto *le = qobject_cast<QLineEdit *>(editor)) {
+                le->setText(v.toString());
+            }
+            break;
     }
 }
 
 void xItemDelegate::setModelData(QWidget *editor, QAbstractItemModel *mdl,
-                                          const QModelIndex &idx) const {
+                                 const QModelIndex &idx) const {
     QVariant out;
-    if (auto *stringListEditor = qobject_cast<xTableStringListEditor *>(editor)) {
-        out = stringListEditor->getStringList();
-    } else if (auto *cb = qobject_cast<QComboBox *>(editor)) {
-        out = cb->currentText();
-    } else if (auto *chk = qobject_cast<QCheckBox *>(editor))
-        out = chk->isChecked();
-    else if (auto *sb = qobject_cast<QSpinBox *>(editor))
-        out = sb->value();
-    else if (auto *ds = qobject_cast<QDoubleSpinBox *>(editor))
-        out = ds->value();
-    else if (auto *dt = qobject_cast<QDateTimeEdit *>(editor))
-        out = dt->dateTime();
-    else if (auto *le = qobject_cast<QLineEdit *>(editor))
-        out = le->text();
-    mdl->setData(idx, out, Qt::EditRole);
+    QVariant originalData = idx.data(Qt::EditRole);
+
+    switch (originalData.typeId()) {
+        case QMetaType::Bool: {
+            // ==================== 【修复核心】 ====================
+            // 编辑器是QWidget容器，我们需要从中找到真正的QCheckBox来获取数据。
+            QCheckBox *chk = editor->findChild<QCheckBox *>();
+            if (chk) {
+                out = chk->isChecked();
+            }
+            // =====================================================
+            break;
+        }
+        // 其他类型的处理保持不变
+        default: {
+            if (auto *stringListEditor = qobject_cast<xTableStringListEditor *>(editor)) {
+                out = stringListEditor->getStringList();
+            } else if (auto *cb = qobject_cast<QComboBox *>(editor)) {
+                out = cb->currentText();
+            } else if (auto *sb = qobject_cast<QSpinBox *>(editor)) {
+                out = sb->value();
+            } else if (auto *ds = qobject_cast<QDoubleSpinBox *>(editor)) {
+                out = ds->value();
+            } else if (auto *dt = qobject_cast<QDateTimeEdit *>(editor)) {
+                out = dt->dateTime();
+            } else if (auto *le = qobject_cast<QLineEdit *>(editor)) {
+                out = le->text();
+            }
+        }
+    }
+
+    if (out.isValid()) {
+        mdl->setData(idx, out, Qt::EditRole);
+    }
 }
 
 QString xItemDelegate::displayText(const QVariant &value, const QLocale &locale) const {
@@ -194,25 +231,23 @@ QString xItemDelegate::displayText(const QVariant &value, const QLocale &locale)
 }
 
 void xItemDelegate::paint(QPainter *p, const QStyleOptionViewItem &opt,
-                                   const QModelIndex &idx) const {
+                          const QModelIndex &idx) const {
     QStyleOptionViewItem option = opt;
     initStyleOption(&option, idx);
     QVariant data = idx.data(Qt::EditRole);
 
     // Handle bool type specially
-    case QVariant::Bool:
-		{
-			QStyleOptionButton opt;
-			opt.rect = option.rect;
-			opt.state = QStyle::State_Enabled;
-			opt.state |= (var.toBool() ? QStyle::State_On : QStyle::State_Off);
-			if (option.state & QStyle::State_Selected) {
-				painter->fillRect(option.rect, option.palette.highlight());
-				opt.palette = option.palette;
-			}
-			QApplication::style()->drawControl(QStyle::CE_CheckBox, &opt, painter);
-		}
-		break;
+    if (data.typeId() == QMetaType::Bool) {
+        QStyleOptionButton opt;
+        opt.rect = QStyle::alignedRect(Qt::LeftToRight, Qt::AlignCenter, QSize(16, 16), option.rect);
+        opt.state |= (data.toBool() ? QStyle::State_On : QStyle::State_Off);
+        //if (option.state & QStyle::State_Selected) {
+        //    p->fillRect(option.rect, option.palette.highlight());
+        //    opt.palette = option.palette;
+        //}
+        QApplication::style()->drawControl(QStyle::CE_CheckBox, &opt, p);
+        return;
+    }
 
     QVariant cond = idx.data(xTableView::ConditionRole);
     if (cond.isValid()) {
@@ -220,6 +255,33 @@ void xItemDelegate::paint(QPainter *p, const QStyleOptionViewItem &opt,
     }
 
     QStyledItemDelegate::paint(p, option, idx);
+}
+
+
+bool xItemDelegate::editorEvent(QEvent *event, QAbstractItemModel *model,
+                                const QStyleOptionViewItem &option, const QModelIndex &index) {
+    // 确保是布尔类型的列
+    if (index.data(Qt::EditRole).typeId() != QMetaType::Bool) {
+        return QStyledItemDelegate::editorEvent(event, model, option, index);
+    }
+
+    // 确保是鼠标左键单击释放事件
+    if (event->type() == QEvent::MouseButtonRelease) {
+        auto *mouseEvent = static_cast<QMouseEvent *>(event);
+        if (mouseEvent->button() == Qt::LeftButton) {
+            // 检查点击位置是否在单元格内
+            if (option.rect.contains(mouseEvent->pos())) {
+                // 直接修改模型数据
+                bool currentValue = index.data(Qt::EditRole).toBool();
+                model->setData(index, !currentValue, Qt::EditRole);
+                // 返回 true 表示我们已经处理了这个事件，不需要再创建编辑器了
+                return true;
+            }
+        }
+    }
+
+    // 对于其他事件，使用基类的默认行为
+    return QStyledItemDelegate::editorEvent(event, model, option, index);
 }
 
 void xItemDelegate::commitAndCloseEditor() {

@@ -25,7 +25,7 @@
 #include "xItemDelegate.h"
 #include <QMetaType>
 #include <QString>
-#include <cstdio> // For snprintf
+#include <cstdio>  // For snprintf
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -78,12 +78,10 @@ bool xTableViewSortFilter::lessThan(const QModelIndex &source_left,
 
     if (sortOrder() == Qt::AscendingOrder) {
         return rightIsPlaceholder;
-    }
-    else {
+    } else {
         return leftIsPlaceholder;
     }
 }
-
 
 bool xTableViewSortFilter::filterAcceptsRow(int sourceRow, const QModelIndex &sourceParent) const {
     auto source = qobject_cast<const xAbstractTableModel *>(sourceModel());
@@ -203,17 +201,18 @@ bool xAbstractTableModel::setData(const QModelIndex &index, const QVariant &valu
     if (append_mode_ && index.row() == realRowCount) {
         // 是占位符行，触发新增逻辑
 
+        // 1. 通知视图，即将在占位符的位置（即末尾）插入一个新行
+        beginInsertRows(QModelIndex(), realRowCount, realRowCount);
+
         // 2. 调用子类实现在底层数据源中创建一条空记录
         bool success = insertNewBaseRow(realRowCount);
+
+        // 3. 通知视图插入完成
+        endInsertRows();
 
         if (!success) {
             return false;  // 如果子类插入失败，则终止
         }
-        // 1. 通知视图，即将在占位符的位置（即末尾）插入一个新行
-        beginInsertRows(QModelIndex(), realRowCount, realRowCount);
-
-        // 3. 通知视图插入完成
-        endInsertRows();
 
         // 4. 现在 index 指向的已经是新创建的真实行了，
         //    我们调用子类的 baseSetData 来设置用户刚刚输入的值。
@@ -237,7 +236,6 @@ xTableView::xTableView(QWidget *parent)
       freeze_rows_(0),
       current_sort_col_(-1),
       current_sort_order_(Qt::AscendingOrder) {
-
     checkable_header_ = new xCheckableHeaderView(Qt::Horizontal, this);
     setHorizontalHeader(checkable_header_);
 
@@ -332,7 +330,6 @@ void xTableView::freezeTopRows(int n) {
 }
 
 void xTableView::keyPressEvent(QKeyEvent *ev) {
-
     if ((ev->modifiers() & Qt::ControlModifier) && (ev->key() == Qt::Key_Delete)) {
         // 同时按下了 Ctrl 键和 Delete 键, 删除整行
         removeSelectedRows();
@@ -344,8 +341,7 @@ void xTableView::keyPressEvent(QKeyEvent *ev) {
         copySelection();
         ev->accept();
         return;
-    }
-    else if (ev->matches(QKeySequence::Paste)) {
+    } else if (ev->matches(QKeySequence::Paste)) {
         paste();
         ev->accept();
         return;
@@ -402,14 +398,14 @@ void xTableView::showHeaderMenu(const QPoint &pos) {
     QAction *freezeAct = menu.addAction(tr("Freeze To This Column"));
     QAction *unfreezeAct = menu.addAction(tr("Unfreeze Columns"));
     menu.addSeparator();
-    
+
     // Add bool column type menu
     QAction *setBoolAct = menu.addAction(tr("Set as Bool Column"));
     QAction *unsetBoolAct = menu.addAction(tr("Unset Bool Column"));
     setBoolAct->setEnabled(!isBoolColumn(column));
     unsetBoolAct->setEnabled(isBoolColumn(column));
     menu.addSeparator();
-    
+
     QAction *exportAct = menu.addAction(tr("Export Selection (TSV)"));
     unfreezeAct->setEnabled(freeze_cols_ > 0);
     QAction *ret = menu.exec(horizontalHeader()->viewport()->mapToGlobal(pos));
@@ -601,8 +597,8 @@ void xTableView::updateFrozenGeometry() {
             }
         }
         frozen_col_view_->setGeometry(verticalHeader()->width() + frameWidth(),
-                                    frameWidth() + horizontalHeader()->height(), w,
-                                    viewport()->height());
+                                      frameWidth() + horizontalHeader()->height(), w,
+                                      viewport()->height());
     }
     if (frozen_row_view_) {
         int h = 0;
@@ -612,8 +608,8 @@ void xTableView::updateFrozenGeometry() {
             }
         }
         frozen_row_view_->setGeometry(verticalHeader()->width() + frameWidth(),
-                                    frameWidth() + horizontalHeader()->height(),
-                                    viewport()->width(), h);
+                                      frameWidth() + horizontalHeader()->height(),
+                                      viewport()->width(), h);
     }
 }
 
@@ -634,23 +630,19 @@ void xTableView::setBoolColumn(int column, bool enabled) {
     }
 }
 
-bool xTableView::isBoolColumn(int column) const {
-    return bool_columns_.contains(column);
-}
+bool xTableView::isBoolColumn(int column) const { return bool_columns_.contains(column); }
 
-QSet<int> xTableView::getBoolColumns() const {
-    return bool_columns_;
-}
+QSet<int> xTableView::getBoolColumns() const { return bool_columns_; }
 
 Qt::CheckState xTableView::calculateBoolColumnState(int column) const {
     if (!model()) return Qt::Unchecked;
-    
+
     int totalRows = model()->rowCount();
     if (totalRows == 0) return Qt::Unchecked;
-    
+
     int checkedCount = 0;
     int validCount = 0;
-    
+
     for (int row = 0; row < totalRows; ++row) {
         QModelIndex idx = model()->index(row, column);
         if (idx.isValid()) {
@@ -663,7 +655,7 @@ Qt::CheckState xTableView::calculateBoolColumnState(int column) const {
             }
         }
     }
-    
+
     if (validCount == 0) return Qt::Unchecked;
     if (checkedCount == 0) return Qt::Unchecked;
     if (checkedCount == validCount) return Qt::Checked;
@@ -710,10 +702,10 @@ void xTableView::updateBoolColumnHeaderState(int column) {
 
 void xTableView::saveBoolColumnMemoryState(int column) {
     if (!model()) return;
-    
+
     QVector<bool> states;
     int totalRows = model()->rowCount();
-    
+
     for (int row = 0; row < totalRows; ++row) {
         QModelIndex idx = model()->index(row, column);
         if (idx.isValid()) {
@@ -721,28 +713,28 @@ void xTableView::saveBoolColumnMemoryState(int column) {
             if (data.typeId() == QMetaType::Bool) {
                 states.append(data.toBool());
             } else {
-                states.append(false); // default for non-bool items
+                states.append(false);  // default for non-bool items
             }
         } else {
             states.append(false);
         }
     }
-    
+
     bool_column_memory_states_[column] = states;
 }
 
 void xTableView::restoreBoolColumnMemoryState(int column) {
     if (!model()) return;
-    
+
     auto it = bool_column_memory_states_.find(column);
     if (it == bool_column_memory_states_.end()) {
-        return; // No memory state saved
+        return;  // No memory state saved
     }
-    
-    const QVector<bool>& states = it.value();
+
+    const QVector<bool> &states = it.value();
     int totalRows = model()->rowCount();
     int stateCount = states.size();
-    
+
     for (int row = 0; row < totalRows && row < stateCount; ++row) {
         QModelIndex idx = model()->index(row, column);
         if (idx.isValid() && (idx.flags() & Qt::ItemIsEditable)) {
