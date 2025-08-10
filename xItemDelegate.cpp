@@ -200,36 +200,19 @@ void xItemDelegate::paint(QPainter *p, const QStyleOptionViewItem &opt,
     QVariant data = idx.data(Qt::EditRole);
 
     // Handle bool type specially
-    if (data.typeId() == QMetaType::Bool) {
-        QStyleOptionButton checkboxOpt;
-        checkboxOpt.rect = option.rect;
-        checkboxOpt.state = option.state;
-        checkboxOpt.state |= data.toBool() ? QStyle::State_On : QStyle::State_Off;
-        checkboxOpt.state |= QStyle::State_Enabled;
-
-        // Center the checkbox
-        QSize checkboxSize =
-            QApplication::style()->sizeFromContents(QStyle::CT_CheckBox, &checkboxOpt, QSize());
-        checkboxOpt.rect =
-            QStyle::alignedRect(Qt::LeftToRight, Qt::AlignCenter, checkboxSize, option.rect);
-
-        QApplication::style()->drawControl(QStyle::CE_CheckBox, &checkboxOpt, p);
-        return;
-    }
-
-    switch (static_cast<QMetaType::Type>(data.typeId())) {
-        case QMetaType::Int:
-        case QMetaType::UInt:
-        case QMetaType::LongLong:
-        case QMetaType::ULongLong:
-        case QMetaType::Double:
-        case QMetaType::Float:
-            option.displayAlignment = Qt::AlignRight | Qt::AlignVCenter;
-            break;
-        default:
-            option.displayAlignment = Qt::AlignLeft | Qt::AlignVCenter;
-            break;
-    }
+    case QVariant::Bool:
+		{
+			QStyleOptionButton opt;
+			opt.rect = option.rect;
+			opt.state = QStyle::State_Enabled;
+			opt.state |= (var.toBool() ? QStyle::State_On : QStyle::State_Off);
+			if (option.state & QStyle::State_Selected) {
+				painter->fillRect(option.rect, option.palette.highlight());
+				opt.palette = option.palette;
+			}
+			QApplication::style()->drawControl(QStyle::CE_CheckBox, &opt, painter);
+		}
+		break;
 
     QVariant cond = idx.data(xTableView::ConditionRole);
     if (cond.isValid()) {
