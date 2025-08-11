@@ -19,7 +19,7 @@ xTableStringListEditor::xTableStringListEditor(xTableView::StringListDialogFacto
     line_edit_ = new QLineEdit(this);
     line_edit_->setFrame(false);  // 保持文本框无边框，与单元格融为一体
     line_edit_->setReadOnly(true);
-    line_edit_->setAlignment(Qt::AlignVCenter);
+    line_edit_->setAlignment(Qt::AlignCenter);
 
     button_ = new QPushButton("...", this);
 

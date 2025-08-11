@@ -124,6 +124,19 @@ class xAbstractTableModel : public QAbstractTableModel {
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 class xTableView : public QTableView {
+  public: // type or const definition
+    static constexpr int ConditionRole = Qt::UserRole + 101;
+    static constexpr int ComboBoxItemsRole = Qt::UserRole + 102;
+    static constexpr int StringListEditRole = Qt::UserRole + 103;
+    static constexpr int StringListDialogFactoryRole = Qt::UserRole + 104;
+    static constexpr int BoolColumnRole = Qt::UserRole + 105;
+    static constexpr int BoolColumnStateRole = Qt::UserRole + 106;
+    static constexpr int StringMapRole = Qt::UserRole + 107;
+    static constexpr int StringMapDialogFactoryRole = Qt::UserRole + 108;
+    enum NUMBER_DISPLAY_MODE { MODE_GENERAL, MODE_FIXFLOAT, MODE_SCIENTIFIC };
+
+  private: // data members
+
     Q_OBJECT
     xTableViewSortFilter *proxy_ = nullptr;
     QTableView *frozen_row_view_ = nullptr;
@@ -141,14 +154,6 @@ class xTableView : public QTableView {
     xCheckableHeaderView *checkable_header_;
 
   public:
-    static constexpr int ConditionRole = Qt::UserRole + 101;
-    static constexpr int ComboBoxItemsRole = Qt::UserRole + 102;
-    static constexpr int StringListEditRole = Qt::UserRole + 103;
-    static constexpr int StringListDialogFactoryRole = Qt::UserRole + 104;
-    static constexpr int BoolColumnRole = Qt::UserRole + 105;
-    static constexpr int BoolColumnStateRole = Qt::UserRole + 106;
-    static constexpr int StringMapRole = Qt::UserRole + 107;
-    static constexpr int StringMapDialogFactoryRole = Qt::UserRole + 108;
 
     explicit xTableView(QWidget *parent = nullptr);
 
@@ -160,6 +165,12 @@ class xTableView : public QTableView {
     void setSourceModel(QAbstractItemModel *m);
 
     inline xTableViewSortFilter *proxyModel() const { return proxy_; }
+
+    NUMBER_DISPLAY_MODE getNumberDisplayMode() const;
+
+    int getNumberDisplayPrecision() const;
+
+    void setNumberDisplayMode(NUMBER_DISPLAY_MODE mode, int precision);
 
     // Public filtering / sorting helpers --------------------------------------------------
 

@@ -8,9 +8,9 @@
 // ***************************************************************
 //
 // ***************************************************************
+#include "xTableView.h"
 #include "xItemDelegate.h"
 #include "xTableEditor.h"
-#include "xTableView.h"
 #include "xTableHeader.h"
 #include <QApplication>
 #include <QClipboard>
@@ -33,7 +33,10 @@
  * @param value 要格式化的浮点数。
  * @return 格式化后的字符串，例如 "+1.234560e+01"。
  */
-static QString formatScientific(double value) {
+static QString formatScientific(double value, int precision) {
+    char fmt[32] = {0};
+
+    snprintf(fmt, sizeof(fmt), "%%+%d.e", precision);
     // 缓冲区要足够大以容纳格式化后的字符串
     char buffer[32];
 
@@ -42,7 +45,7 @@ static QString formatScientific(double value) {
     // +      - 始终显示符号 (正号或负号)
     // .6     - 小数点后保留6位数字
     // e      - 使用小写'e'的科学计数法
-    snprintf(buffer, sizeof(buffer), "%+.6e", value);
+    snprintf(buffer, sizeof(buffer), fmt, value);
 
     QString result = QString::fromLatin1(buffer);
 
@@ -64,7 +67,8 @@ static QString formatScientific(double value) {
     return result;
 }
 
-xItemDelegate::xItemDelegate(QObject *parent) : QStyledItemDelegate(parent) {}
+xItemDelegate::xItemDelegate(QObject *parent)
+    : QStyledItemDelegate(parent), realnum_showmode_(xTableView::MODE_GENERAL), realnum_precision_(0) {}
 
 QWidget *xItemDelegate::createEditor(QWidget *parent, const QStyleOptionViewItem &opt,
                                      const QModelIndex &idx) const {
@@ -225,7 +229,21 @@ void xItemDelegate::setModelData(QWidget *editor, QAbstractItemModel *mdl,
 QString xItemDelegate::displayText(const QVariant &value, const QLocale &locale) const {
     QMetaType::Type type = static_cast<QMetaType::Type>(value.typeId());
     if (type == QMetaType::Double || type == QMetaType::Float) {
-        return formatScientific(value.toDouble());
+        double val = value.toDouble();
+        switch (realnum_showmode_) {
+            case xTableView::MODE_FIXFLOAT:
+                // 使用固定小数位数格式，精度由 realnum_precision_ 控制
+                return locale.toString(val, 'f', realnum_precision_);
+
+            case xTableView::MODE_SCIENTIFIC:
+                // 使用您自定义的科学计数法格式
+                return formatScientific(val, realnum_precision_);
+
+            case xTableView::MODE_GENERAL:
+            default:
+                // 使用“通用”格式，自动在常规和小数之间切换
+                return locale.toString(val, 'g', realnum_precision_ ? realnum_precision_ : 8);
+        }
     }
     return QStyledItemDelegate::displayText(value, locale);
 }

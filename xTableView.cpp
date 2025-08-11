@@ -312,6 +312,39 @@ void xTableView::setSourceModel(QAbstractItemModel *m) {
     syncFrozen();
 }
 
+xTableView::NUMBER_DISPLAY_MODE xTableView::getNumberDisplayMode() const {
+    xItemDelegate *delegate = qobject_cast<xItemDelegate *>(this->itemDelegate());
+    if (delegate) {
+        return (NUMBER_DISPLAY_MODE)delegate->getRealNumberMode();
+    } else {
+        return MODE_GENERAL;
+    }
+}
+
+int xTableView::getNumberDisplayPrecision() const {
+    xItemDelegate *delegate = qobject_cast<xItemDelegate *>(this->itemDelegate());
+    if (delegate) {
+        return delegate->getRealNumberPrecision();
+    } else {
+        return 0;  // 默认精度为0
+    }
+}
+
+void xTableView::setNumberDisplayMode(NUMBER_DISPLAY_MODE mode, int precision) {
+    // 1. 获取当前视图的委托，并尝试将其转换为我们自定义的 xItemDelegate 类型
+    xItemDelegate *delegate = qobject_cast<xItemDelegate *>(this->itemDelegate());
+
+    // 2. 确保转换成功
+    if (delegate) {
+        // 3. 调用我们之前在委托中写好的方法，将模式和精度传递下去
+        delegate->setRealNumberShowMode(mode, precision);
+
+        // 4. 【关键】强制整个视图重绘。
+        //    这会使所有可见单元格的 displayText() 方法被重新调用，从而应用新的数字格式。
+        viewport()->update();
+    }
+}
+
 void xTableView::setColumnFilter(int col, const QVariantMap &cond) {
     proxy_->setColumnFilter(col, cond);
 }
