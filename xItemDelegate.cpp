@@ -249,6 +249,40 @@ void xItemDelegate::paint(QPainter *p, const QStyleOptionViewItem &opt,
         return;
     }
 
+    // Add margin (1px on left and right)
+    QRect adjustedRect = option.rect.adjusted(1, 0, -1, 0);
+    option.rect = adjustedRect;
+
+    // Handle text alignment - ensure numeric types are right-aligned and vertically centered
+    QVariant alignmentData = idx.data(Qt::TextAlignmentRole);
+    if (alignmentData.isValid()) {
+        Qt::Alignment alignment = static_cast<Qt::Alignment>(alignmentData.toInt());
+        
+        // For numeric types (right-aligned), ensure vertical centering
+        if (alignment & Qt::AlignRight) {
+            // Ensure vertical centering is included
+            alignment |= Qt::AlignVCenter;
+            option.displayAlignment = alignment;
+        } else if (alignment & Qt::AlignCenter) {
+            // Bool type - already centered
+            option.displayAlignment = alignment;
+        } else {
+            // String type - left-aligned with vertical centering
+            alignment |= Qt::AlignVCenter;
+            option.displayAlignment = alignment;
+        }
+    } else {
+        // Default alignment based on data type
+        if (data.typeId() == QMetaType::Double || data.typeId() == QMetaType::Float || 
+            data.typeId() == QMetaType::Int || data.typeId() == QMetaType::LongLong) {
+            option.displayAlignment = Qt::AlignRight | Qt::AlignVCenter;
+        } else if (data.typeId() == QMetaType::Bool) {
+            option.displayAlignment = Qt::AlignCenter | Qt::AlignVCenter;
+        } else {
+            option.displayAlignment = Qt::AlignLeft | Qt::AlignVCenter;
+        }
+    }
+
     QVariant cond = idx.data(xTableView::ConditionRole);
     if (cond.isValid()) {
         if (cond.toString() == "error") option.palette.setColor(QPalette::Text, Qt::red);
