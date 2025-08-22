@@ -26,6 +26,12 @@
 #include <QMetaType>
 #include <QString>
 #include <cstdio>  // For snprintf
+#include <QLineEdit>
+#include <QTextEdit>
+#include <QSpinBox>
+#include <QDoubleSpinBox>
+#include <QComboBox>
+#include <QTextCursor>
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -776,5 +782,229 @@ void xTableView::restoreBoolColumnMemoryState(int column) {
                 model()->setData(idx, states[row], Qt::EditRole);
             }
         }
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+// Edit State Preservation Implementation
+
+void xTableView::setPreserveEditState(bool enabled) {
+    preserve_edit_state_ = enabled;
+}
+
+bool xTableView::preserveEditState() const {
+    return preserve_edit_state_;
+}
+
+void xTableView::saveCurrentEditState() {
+    if (!preserve_edit_state_) return;
+    
+    saved_edit_state_.clear();
+    
+    // Check if there's an active editor
+    QWidget* editor = indexWidget(currentIndex());
+    if (!editor) {
+        // Try to get persistent editor
+        editor = this->indexWidget(currentIndex());
+    }
+    
+    if (editor) {
+        saved_edit_state_.index = currentIndex();
+        
+        // Try to get text from common editor types
+        QLineEdit* lineEdit = qobject_cast<QLineEdit*>(editor);
+        if (lineEdit) {
+            saved_edit_state_.currentText = lineEdit->text();
+            saved_edit_state_.cursorPosition = lineEdit->cursorPosition();
+            saved_edit_state_.hasSelection = lineEdit->hasSelectedText();
+            if (saved_edit_state_.hasSelection) {
+                saved_edit_state_.selectionStart = lineEdit->selectionStart();
+                saved_edit_state_.selectionLength = lineEdit->selectedText().length();
+            }
+            return;
+        }
+        
+        // Try QTextEdit for multi-line editors
+        QTextEdit* textEdit = qobject_cast<QTextEdit*>(editor);
+        if (textEdit) {
+            saved_edit_state_.currentText = textEdit->toPlainText();
+            QTextCursor cursor = textEdit->textCursor();
+            saved_edit_state_.cursorPosition = cursor.position();
+            saved_edit_state_.hasSelection = cursor.hasSelection();
+            if (saved_edit_state_.hasSelection) {
+                saved_edit_state_.selectionStart = cursor.selectionStart();
+                saved_edit_state_.selectionLength = cursor.selectionEnd() - cursor.selectionStart();
+            }
+            return;
+        }
+        
+        // Try QSpinBox
+        QSpinBox* spinBox = qobject_cast<QSpinBox*>(editor);
+        if (spinBox) {
+            saved_edit_state_.currentText = QString::number(spinBox->value());
+            return;
+        }
+        
+        // Try QDoubleSpinBox
+        QDoubleSpinBox* doubleSpinBox = qobject_cast<QDoubleSpinBox*>(editor);
+        if (doubleSpinBox) {
+            saved_edit_state_.currentText = QString::number(doubleSpinBox->value());
+            return;
+        }
+        
+        // Try QComboBox
+        QComboBox* comboBox = qobject_cast<QComboBox*>(editor);
+        if (comboBox) {
+            saved_edit_state_.currentText = comboBox->currentText();
+            return;
+        }
+    }
+}
+
+void xTableView::restoreEditState() {
+    if (!preserve_edit_state_ || !saved_edit_state_.isValid()) return;
+    
+    // Make sure the index is still valid after data refresh
+    if (!saved_edit_state_.index.isValid() || 
+        saved_edit_state_.index.row() >= model()->rowCount() ||
+        saved_edit_state_.index.column() >= model()->columnCount()) {
+        saved_edit_state_.clear();
+        return;
+    }
+    
+    // Set current index first
+    setCurrentIndex(saved_edit_state_.index);
+    
+    // Start editing the cell
+    edit(saved_edit_state_.index);
+    
+    // Get the newly created editor
+    QWidget* editor = indexWidget(saved_edit_state_.index);
+    if (!editor) {
+        // Try alternative method
+        QMetaObject::invokeMethod(this, [this]() {
+            QWidget* editor = indexWidget(saved_edit_state_.index);
+            restoreEditorContent(editor);
+        }, Qt::QueuedConnection);
+    } else {
+        restoreEditorContent(editor);
+    }
+    
+    saved_edit_state_.clear();
+}
+
+void xTableView::restoreEditorContent(QWidget* editor) {
+    if (!editor || saved_edit_state_.currentText.isEmpty()) return;
+    
+    // Restore content for different editor types
+    QLineEdit* lineEdit = qobject_cast<QLineEdit*>(editor);
+    if (lineEdit) {
+        lineEdit->setText(saved_edit_state_.currentText);
+        lineEdit->setCursorPosition(saved_edit_state_.cursorPosition);
+        if (saved_edit_state_.hasSelection) {
+            lineEdit->setSelection(saved_edit_state_.selectionStart, saved_edit_state_.selectionLength);
+        }
+        lineEdit->setFocus();
+        return;
+    }
+    
+    QTextEdit* textEdit = qobject_cast<QTextEdit*>(editor);
+    if (textEdit) {
+        textEdit->setPlainText(saved_edit_state_.currentText);
+        QTextCursor cursor = textEdit->textCursor();
+        cursor.setPosition(saved_edit_state_.cursorPosition);
+        if (saved_edit_state_.hasSelection) {
+            cursor.setPosition(saved_edit_state_.selectionStart, QTextCursor::MoveAnchor);
+            cursor.setPosition(saved_edit_state_.selectionStart + saved_edit_state_.selectionLength, QTextCursor::KeepAnchor);
+        }
+        textEdit->setTextCursor(cursor);
+        textEdit->setFocus();
+        return;
+    }
+    
+    QSpinBox* spinBox = qobject_cast<QSpinBox*>(editor);
+    if (spinBox) {
+        bool ok;
+        int value = saved_edit_state_.currentText.toInt(&ok);
+        if (ok) {
+            spinBox->setValue(value);
+            spinBox->setFocus();
+        }
+        return;
+    }
+    
+    QDoubleSpinBox* doubleSpinBox = qobject_cast<QDoubleSpinBox*>(editor);
+    if (doubleSpinBox) {
+        bool ok;
+        double value = saved_edit_state_.currentText.toDouble(&ok);
+        if (ok) {
+            doubleSpinBox->setValue(value);
+            doubleSpinBox->setFocus();
+        }
+        return;
+    }
+    
+    QComboBox* comboBox = qobject_cast<QComboBox*>(editor);
+    if (comboBox) {
+        int index = comboBox->findText(saved_edit_state_.currentText);
+        if (index >= 0) {
+            comboBox->setCurrentIndex(index);
+            comboBox->setFocus();
+        }
+        return;
+    }
+}
+
+void xTableView::clearSavedEditState() {
+    saved_edit_state_.clear();
+}
+
+// Override data model change handlers to preserve edit state
+void xTableView::dataChanged(const QModelIndex &topLeft, const QModelIndex &bottomRight, const QVector<int> &roles) {
+    if (preserve_edit_state_) {
+        saveCurrentEditState();
+    }
+    
+    QTableView::dataChanged(topLeft, bottomRight, roles);
+    
+    if (preserve_edit_state_) {
+        // Use queued connection to restore after the view has processed the change
+        QMetaObject::invokeMethod(this, "restoreEditState", Qt::QueuedConnection);
+    }
+}
+
+void xTableView::rowsInserted(const QModelIndex &parent, int first, int last) {
+    if (preserve_edit_state_) {
+        saveCurrentEditState();
+    }
+    
+    QTableView::rowsInserted(parent, first, last);
+    
+    if (preserve_edit_state_) {
+        QMetaObject::invokeMethod(this, "restoreEditState", Qt::QueuedConnection);
+    }
+}
+
+void xTableView::rowsRemoved(const QModelIndex &parent, int first, int last) {
+    if (preserve_edit_state_) {
+        saveCurrentEditState();
+    }
+    
+    QTableView::rowsRemoved(parent, first, last);
+    
+    if (preserve_edit_state_) {
+        QMetaObject::invokeMethod(this, "restoreEditState", Qt::QueuedConnection);
+    }
+}
+
+void xTableView::modelReset() {
+    if (preserve_edit_state_) {
+        saveCurrentEditState();
+    }
+    
+    QTableView::modelReset();
+    
+    if (preserve_edit_state_) {
+        QMetaObject::invokeMethod(this, "restoreEditState", Qt::QueuedConnection);
     }
 }

@@ -152,6 +152,20 @@ class xTableView : public QTableView {
     QSet<int> bool_columns_;
     QMap<int, QVector<bool>> bool_column_memory_states_;
     xCheckableHeaderView *checkable_header_;
+    
+    // Edit state preservation
+    struct EditState {
+        QModelIndex index;
+        QString currentText;
+        int cursorPosition = 0;
+        bool hasSelection = false;
+        int selectionStart = 0;
+        int selectionLength = 0;
+        bool isValid() const { return index.isValid(); }
+        void clear() { index = QModelIndex(); currentText.clear(); cursorPosition = 0; hasSelection = false; }
+    };
+    EditState saved_edit_state_;
+    bool preserve_edit_state_ = true;
 
   public:
 
@@ -198,6 +212,13 @@ class xTableView : public QTableView {
     void setBoolColumn(int column, bool enabled);
     bool isBoolColumn(int column) const;
     QSet<int> getBoolColumns() const;
+    
+    // Edit state preservation
+    void setPreserveEditState(bool enabled);
+    bool preserveEditState() const;
+    void saveCurrentEditState();
+    void restoreEditState();
+    void clearSavedEditState();
 
   signals:
 
@@ -211,6 +232,12 @@ class xTableView : public QTableView {
     void resizeEvent(QResizeEvent *e);
 
     void scrollContentsBy(int dx, int dy);
+    
+    // Data model change handlers
+    void dataChanged(const QModelIndex &topLeft, const QModelIndex &bottomRight, const QVector<int> &roles = QVector<int>()) override;
+    void rowsInserted(const QModelIndex &parent, int first, int last) override;
+    void rowsRemoved(const QModelIndex &parent, int first, int last) override;
+    void modelReset() override;
 
   private slots:
 
@@ -248,6 +275,9 @@ class xTableView : public QTableView {
     void saveBoolColumnMemoryState(int column);
 
     void restoreBoolColumnMemoryState(int column);
+    
+    // Edit state preservation helpers
+    void restoreEditorContent(QWidget* editor);
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
