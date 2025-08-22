@@ -141,7 +141,9 @@ class xTableViewTopRowsFilter : public QSortFilterProxyModel {
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 xAbstractTableModel::xAbstractTableModel(QObject *parent) : QAbstractTableModel(parent) {}
 
-void xAbstractTableModel::setAppendMode(bool enabled) {
+void xAbstractTableModel::setAppendMode(bool enabled, int hint_col) {
+    hint_column_ = hint_col;
+
     if (append_mode_ == enabled) return;
 
     append_mode_ = enabled;
@@ -170,7 +172,7 @@ QVariant xAbstractTableModel::data(const QModelIndex &index, int role) const {
     int realRowCount = baseRowCount(index.parent());
     // 检查是否是占位符行
     if (append_mode_ && index.row() == realRowCount) {
-        if (role == Qt::DisplayRole && index.column() == 0) {
+        if (role == Qt::DisplayRole && index.column() == hint_column_) {
             return "* Click to add a new item...";
         }
         if (role == Qt::FontRole) {

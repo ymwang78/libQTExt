@@ -84,6 +84,8 @@ class xAbstractTableModel : public QAbstractTableModel {
   protected:
     bool append_mode_ = false;
 
+    int hint_column_ = 0;
+
   public:
     explicit xAbstractTableModel(QObject *parent = nullptr);
 
@@ -93,7 +95,7 @@ class xAbstractTableModel : public QAbstractTableModel {
 
   public slots:
 
-    void setAppendMode(bool enabled);
+    void setAppendMode(bool enabled, int hint_col = 0);
 
   public:
     int rowCount(const QModelIndex &parent = QModelIndex()) const override;
