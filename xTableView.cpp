@@ -301,6 +301,9 @@ void xTableView::setSourceModel(QAbstractItemModel *m) {
     // 2. 如果旧的源模型存在，则断开连接
     if (oldSourceModel) {
         disconnect(oldSourceModel, &QAbstractItemModel::dataChanged, this, nullptr);
+        disconnect(oldSourceModel, &QAbstractItemModel::rowsInserted, this, &xTableView::rowsInserted);
+        disconnect(oldSourceModel, &QAbstractItemModel::rowsRemoved, this, &xTableView::rowsRemoved);
+        disconnect(oldSourceModel, &QAbstractItemModel::modelReset, this, &xTableView::modelReset);
     }
 
     proxy_->setSourceModel(m);
@@ -316,6 +319,11 @@ void xTableView::setSourceModel(QAbstractItemModel *m) {
                         }
                     }
                 });
+        
+        // Connect edit state preservation signals
+        connect(m, &QAbstractItemModel::rowsInserted, this, &xTableView::rowsInserted);
+        connect(m, &QAbstractItemModel::rowsRemoved, this, &xTableView::rowsRemoved);
+        connect(m, &QAbstractItemModel::modelReset, this, &xTableView::modelReset);
     }
     syncFrozen();
 }
@@ -976,25 +984,23 @@ void xTableView::dataChanged(const QModelIndex &topLeft, const QModelIndex &bott
 }
 
 void xTableView::rowsInserted(const QModelIndex &parent, int first, int last) {
+    Q_UNUSED(parent)
+    Q_UNUSED(first)
+    Q_UNUSED(last)
+    
     if (preserve_edit_state_) {
         saveCurrentEditState();
-    }
-    
-    QTableView::rowsInserted(parent, first, last);
-    
-    if (preserve_edit_state_) {
         QMetaObject::invokeMethod(this, "restoreEditState", Qt::QueuedConnection);
     }
 }
 
 void xTableView::rowsRemoved(const QModelIndex &parent, int first, int last) {
+    Q_UNUSED(parent)
+    Q_UNUSED(first)
+    Q_UNUSED(last)
+    
     if (preserve_edit_state_) {
         saveCurrentEditState();
-    }
-    
-    QTableView::rowsRemoved(parent, first, last);
-    
-    if (preserve_edit_state_) {
         QMetaObject::invokeMethod(this, "restoreEditState", Qt::QueuedConnection);
     }
 }
@@ -1002,11 +1008,6 @@ void xTableView::rowsRemoved(const QModelIndex &parent, int first, int last) {
 void xTableView::modelReset() {
     if (preserve_edit_state_) {
         saveCurrentEditState();
-    }
-    
-    QTableView::modelReset();
-    
-    if (preserve_edit_state_) {
         QMetaObject::invokeMethod(this, "restoreEditState", Qt::QueuedConnection);
     }
 }

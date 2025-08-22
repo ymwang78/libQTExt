@@ -237,9 +237,6 @@ class xTableView : public QTableView {
     
     // Data model change handlers
     void dataChanged(const QModelIndex &topLeft, const QModelIndex &bottomRight, const QVector<int> &roles = QVector<int>()) override;
-    void rowsInserted(const QModelIndex &parent, int first, int last) override;
-    void rowsRemoved(const QModelIndex &parent, int first, int last) override;
-    void modelReset() override;
 
   private slots:
 
@@ -248,6 +245,11 @@ class xTableView : public QTableView {
     void toggleSortColumn(int logicalCol);
 
     void onHeaderCheckboxToggled(int column, Qt::CheckState state);
+    
+    // Data model change handlers (slots, not override methods)
+    void rowsInserted(const QModelIndex &parent, int first, int last);
+    void rowsRemoved(const QModelIndex &parent, int first, int last);
+    void modelReset();
 
   private:
     // Copy / Paste / Delete --------------------------------------------------------------
