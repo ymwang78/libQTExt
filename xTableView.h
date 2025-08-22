@@ -155,23 +155,11 @@ class xTableView : public QTableView {
     QMap<int, QVector<bool>> bool_column_memory_states_;
     xCheckableHeaderView *checkable_header_;
     
-    // Edit state preservation
-    struct EditState {
-        QModelIndex index;
-        QString currentText;
-        int cursorPosition = 0;
-        bool hasSelection = false;
-        int selectionStart = 0;
-        int selectionLength = 0;
-        bool isValid() const { return index.isValid(); }
-        void clear() { index = QModelIndex(); currentText.clear(); cursorPosition = 0; hasSelection = false; }
-    };
-    EditState saved_edit_state_;
-    bool preserve_edit_state_ = true;
-
   public:
 
     explicit xTableView(QWidget *parent = nullptr);
+
+    bool isEditing() const;
 
     // Set the table view to stretch to fill the parent widget
     void setStretchToFill(bool enabled);
@@ -235,9 +223,6 @@ class xTableView : public QTableView {
 
     void scrollContentsBy(int dx, int dy);
     
-    // Data model change handlers
-    void dataChanged(const QModelIndex &topLeft, const QModelIndex &bottomRight, const QVector<int> &roles = QVector<int>()) override;
-
   private slots:
 
     void showHeaderMenu(const QPoint &pos);
@@ -245,11 +230,6 @@ class xTableView : public QTableView {
     void toggleSortColumn(int logicalCol);
 
     void onHeaderCheckboxToggled(int column, Qt::CheckState state);
-    
-    // Data model change handlers (slots, not override methods)
-    void rowsInserted(const QModelIndex &parent, int first, int last);
-    void rowsRemoved(const QModelIndex &parent, int first, int last);
-    void modelReset();
 
   private:
     // Copy / Paste / Delete --------------------------------------------------------------
