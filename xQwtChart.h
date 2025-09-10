@@ -13,6 +13,9 @@
 #include <qwt_scale_draw.h>
 #include <qwt_text.h>
 #include <qwt_plot.h>
+#include <qwt_plot_zoomer.h>
+#include <qwt_plot_magnifier.h>
+#include <qwt_scale_div.h>
 #include <QString>
 #include <cmath>  // for std::abs
 
@@ -44,4 +47,42 @@ class xQwtPlot : public QwtPlot {
 
   signals:
     void scalesChanged();
+};
+
+/**
+ * @brief Custom QwtPlotZoomer that only allows X-axis zooming
+ */
+class XAxisOnlyZoomer : public QwtPlotZoomer {
+    Q_OBJECT
+
+  public:
+    explicit XAxisOnlyZoomer(QWidget* canvas);
+
+  protected:
+    // Override to validate zoom rectangle - only allow X-axis changes
+    bool accept(QPolygon& pa) const override;
+
+    // Override end to emit our custom signal
+    bool end(bool ok = true) override;
+
+  signals:
+    void xAxisZoomed(const QRectF& rect);  // Signal for synchronization
+};
+
+
+/**
+ * @brief Custom QwtPlotMagnifier that only allows X-axis wheel zooming
+ */
+class XAxisOnlyMagnifier : public QwtPlotMagnifier {
+    Q_OBJECT
+
+  public:
+    explicit XAxisOnlyMagnifier(QWidget* canvas);
+
+  protected:
+    // Override to only magnify X-axis
+    void rescale(double factor) override;
+
+  signals:
+    void xAxisRescaled(const QRectF& rect);  // Signal for synchronization
 };
