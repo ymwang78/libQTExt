@@ -22,6 +22,8 @@ XAxisOnlyZoomer::XAxisOnlyZoomer(QWidget* canvas) : QwtPlotZoomer(canvas) {
     // Only allow X-axis selection
     setRubberBandPen(QPen(Qt::blue, 1, Qt::DashLine));
     setTrackerPen(QPen(Qt::blue));
+    // 禁用右键复位
+    setMousePattern(QwtEventPattern::MouseSelect2, Qt::NoButton);
 }
 
 bool XAxisOnlyZoomer::accept(QPolygon& pa) const {
