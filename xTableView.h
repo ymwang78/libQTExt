@@ -37,6 +37,8 @@ class xTableViewBoolHeader;
 
 class xCheckableHeaderView;
 
+class xTableView;
+
 struct xTableViewFilterRule {
     int column = -1;           // which column; -1 == global (not used yet)
     QRegularExpression regex;  // regex match (string values)
@@ -75,6 +77,18 @@ class xTableViewTopRowsFilter;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
+class xPaletteChangeWatcher : public QObject {
+  public:
+    explicit xPaletteChangeWatcher(xTableView *target);
+
+  protected:
+    bool eventFilter(QObject *obj, QEvent *event) override;
+
+  private:
+    xTableView *m_target = nullptr;
+};
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
 class xAbstractTableModel : public QAbstractTableModel {
     friend class xTableViewSortFilter;  // Allow xTableViewSortFilter to visit private member:
                                         // baseRowCount
@@ -93,11 +107,8 @@ class xAbstractTableModel : public QAbstractTableModel {
 
     bool appendMode() const { return append_mode_; }
 
-  public slots:
-
     void setAppendMode(bool enabled, int hint_col = 0);
 
-  public:
     int rowCount(const QModelIndex &parent = QModelIndex()) const override;
 
     QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;

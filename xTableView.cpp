@@ -154,9 +154,11 @@ void xAbstractTableModel::setAppendMode(bool enabled, int hint_col) {
         beginInsertRows(QModelIndex(), realRowCount, realRowCount);
         endInsertRows();
     } else {
-        // 关闭模式：移除末尾的占位符行
-        beginRemoveRows(QModelIndex(), realRowCount, realRowCount);
-        endRemoveRows();
+        if (realRowCount > 0) {
+            // 关闭模式：移除末尾的占位符行
+            beginRemoveRows(QModelIndex(), realRowCount - 1, realRowCount - 1);
+            endRemoveRows();
+        }
     }
 }
 
@@ -233,6 +235,68 @@ bool xAbstractTableModel::setData(const QModelIndex &index, const QVariant &valu
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
+static void applyTableTheme(QTableView *table, bool darkMode) {
+    if (!table) return;
+
+    if (darkMode) {
+        table->setStyleSheet(
+            "QTableView {"
+            "    background-color: rgb(37, 37, 43);"
+            "    alternate-background-color: rgb(65, 50, 59);"
+            "    color: white;"
+            "    gridline-color: rgb(70, 70, 80);"
+            "    selection-background-color: rgb(80, 80, 100);"
+            "    selection-color: white;"
+            "    border: 1px solid rgb(70, 70, 80);"
+            "}"
+            "QHeaderView::section {"
+            "    background-color: rgb(65, 50, 59);"
+            "    color: white;"
+            "    border: 1px solid rgb(70, 70, 80);"
+            "}");
+    } else {
+        table->setStyleSheet(
+            "QTableView {"
+            "    background-color: white;"
+            "    alternate-background-color: rgb(245, 245, 245);"
+            "    color: black;"
+            "    gridline-color: rgb(210, 210, 210);"
+            "    selection-background-color: rgb(180, 200, 255);"
+            "    selection-color: black;"
+            "    border: 1px solid rgb(210, 210, 210);"
+            "}"
+            "QHeaderView::section {"
+            "    background-color: rgb(235, 235, 235);"
+            "    color: black;"
+            "    border: 1px solid rgb(210, 210, 210);"
+            "}");
+    }
+
+    table->setAlternatingRowColors(true);
+    table->viewport()->update();
+}
+
+xPaletteChangeWatcher::xPaletteChangeWatcher(xTableView *target) : m_target(target) {}
+
+bool xPaletteChangeWatcher::eventFilter(QObject *obj, QEvent *event) {
+    if (event->type() == QEvent::ApplicationPaletteChange && m_target) {
+        bool darkModeNow = qApp->palette().color(QPalette::Window).lightness() < 128;
+        applyTableTheme(m_target, darkModeNow);
+        qDebug() << "System palette changed:" << (darkModeNow ? "Dark" : "Light");
+    }
+    return QObject::eventFilter(obj, event);
+}
+
+static void setupAdaptiveTableStyle(xTableView *table) {
+    if (!table) return;
+
+    bool darkMode = qApp->palette().color(QPalette::Window).lightness() < 128;
+    applyTableTheme(table, darkMode);
+
+    // 安装事件过滤器监听系统调色板变化
+    xPaletteChangeWatcher *watcher = new xPaletteChangeWatcher(table);
+    qApp->installEventFilter(watcher);
+}
 
 xTableView::xTableView(QWidget *parent)
     : QTableView(parent),
@@ -268,7 +332,7 @@ xTableView::xTableView(QWidget *parent)
     QFont tableFont;
     tableFont.setFamily("Consolas, Microsoft YaHei");
     setFont(tableFont);
-
+    setupAdaptiveTableStyle(this);
     connect(horizontalHeader(), &QHeaderView::customContextMenuRequested, this,
             &xTableView::showHeaderMenu);
 
@@ -317,7 +381,7 @@ void xTableView::setSourceModel(QAbstractItemModel *m) {
                             updateBoolColumnHeaderState(col);
                         }
                     }
-                });        
+                });
     }
     syncFrozen();
 }
