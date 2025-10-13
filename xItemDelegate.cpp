@@ -68,7 +68,9 @@ static QString formatScientific(double value, int precision) {
 }
 
 xItemDelegate::xItemDelegate(QObject *parent)
-    : QStyledItemDelegate(parent), realnum_showmode_(xTableView::MODE_GENERAL), realnum_precision_(0) {}
+    : QStyledItemDelegate(parent),
+      realnum_showmode_(xTableView::MODE_GENERAL),
+      realnum_precision_(0) {}
 
 QWidget *xItemDelegate::createEditor(QWidget *parent, const QStyleOptionViewItem &opt,
                                      const QModelIndex &idx) const {
@@ -257,12 +259,18 @@ void xItemDelegate::paint(QPainter *p, const QStyleOptionViewItem &opt,
     // Handle bool type specially
     if (data.typeId() == QMetaType::Bool) {
         QStyleOptionButton opt;
-        opt.rect = QStyle::alignedRect(Qt::LeftToRight, Qt::AlignCenter, QSize(16, 16), option.rect);
+        // 增大 checkbox 尺寸，从 16x16 改为行高的 80%，最小 18 像素
+        int checkboxSize = qMax(18, static_cast<int>(option.rect.height() * 0.8));
+        opt.rect = QStyle::alignedRect(Qt::LeftToRight, Qt::AlignCenter,
+                                       QSize(checkboxSize, checkboxSize), option.rect);
         opt.state |= (data.toBool() ? QStyle::State_On : QStyle::State_Off);
-        //if (option.state & QStyle::State_Selected) {
-        //    p->fillRect(option.rect, option.palette.highlight());
-        //    opt.palette = option.palette;
-        //}
+        opt.state |= QStyle::State_Enabled;  // 确保 checkbox 处于启用状态
+
+        // 如果单元格被选中，绘制选中背景
+        if (option.state & QStyle::State_Selected) {
+            p->fillRect(option.rect, option.palette.highlight());
+        }
+
         QApplication::style()->drawControl(QStyle::CE_CheckBox, &opt, p);
         return;
     }
@@ -275,7 +283,7 @@ void xItemDelegate::paint(QPainter *p, const QStyleOptionViewItem &opt,
     QVariant alignmentData = idx.data(Qt::TextAlignmentRole);
     if (alignmentData.isValid()) {
         Qt::Alignment alignment = static_cast<Qt::Alignment>(alignmentData.toInt());
-        
+
         // For numeric types (right-aligned), ensure vertical centering
         if (alignment & Qt::AlignRight) {
             // Ensure vertical centering is included
@@ -291,7 +299,7 @@ void xItemDelegate::paint(QPainter *p, const QStyleOptionViewItem &opt,
         }
     } else {
         // Default alignment based on data type
-        if (data.typeId() == QMetaType::Double || data.typeId() == QMetaType::Float || 
+        if (data.typeId() == QMetaType::Double || data.typeId() == QMetaType::Float ||
             data.typeId() == QMetaType::Int || data.typeId() == QMetaType::LongLong) {
             option.displayAlignment = Qt::AlignRight | Qt::AlignVCenter;
         } else if (data.typeId() == QMetaType::Bool) {
@@ -309,7 +317,6 @@ void xItemDelegate::paint(QPainter *p, const QStyleOptionViewItem &opt,
     QStyledItemDelegate::paint(p, option, idx);
 }
 
-
 bool xItemDelegate::editorEvent(QEvent *event, QAbstractItemModel *model,
                                 const QStyleOptionViewItem &option, const QModelIndex &index) {
     // 确保是布尔类型的列
@@ -317,16 +324,24 @@ bool xItemDelegate::editorEvent(QEvent *event, QAbstractItemModel *model,
         return QStyledItemDelegate::editorEvent(event, model, option, index);
     }
 
-    // 确保是鼠标左键单击释放事件
+    // 处理鼠标按下和释放事件，提供更好的视觉反馈
     if (event->type() == QEvent::MouseButtonRelease) {
+        // qDebug() << "QEvent::MouseButtonRelease";
         auto *mouseEvent = static_cast<QMouseEvent *>(event);
         if (mouseEvent->button() == Qt::LeftButton) {
-            // 检查点击位置是否在单元格内
-            if (option.rect.contains(mouseEvent->pos())) {
-                // 直接修改模型数据
+            // 计算 checkbox 的实际区域（与 paint() 方法中的逻辑一致）
+            int checkboxSize = qMax(18, static_cast<int>(option.rect.height() * 0.8));
+            QRect checkboxRect = QStyle::alignedRect(
+                Qt::LeftToRight, Qt::AlignCenter, QSize(checkboxSize, checkboxSize), option.rect);
+
+            // 扩大可点击区域，使其更容易点击（增加 4 像素的边距）
+            checkboxRect = checkboxRect.adjusted(-4, -4, 4, 4);
+
+            // 检查点击位置是否在 checkbox 区域内
+            if (checkboxRect.contains(mouseEvent->pos())) {
+                // qDebug() << "QEvent::MouseButtonRelease revert";
                 bool currentValue = index.data(Qt::EditRole).toBool();
                 model->setData(index, !currentValue, Qt::EditRole);
-                // 返回 true 表示我们已经处理了这个事件，不需要再创建编辑器了
                 return true;
             }
         }
