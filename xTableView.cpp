@@ -141,6 +141,11 @@ class xTableViewTopRowsFilter : public QSortFilterProxyModel {
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 xAbstractTableModel::xAbstractTableModel(QObject *parent) : QAbstractTableModel(parent) {}
 
+void xAbstractTableModel::resetModel() {
+    beginResetModel();
+    endResetModel();
+}
+
 void xAbstractTableModel::setAppendMode(bool enabled, int hint_col) {
     hint_column_ = hint_col;
 
@@ -478,7 +483,7 @@ void xTableView::resizeEvent(QResizeEvent *e) {
 
         for (int i = 0; i < column_width_ratios_.size(); ++i) {
             // 确保列存在
-            if (i < model()->columnCount()) {
+            if (model() && i < model()->columnCount()) {
                 int columnWidth = (totalWidth * column_width_ratios_[i]) / totalRatio;
                 setColumnWidth(i, columnWidth);
             }

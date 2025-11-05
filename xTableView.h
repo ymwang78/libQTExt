@@ -105,6 +105,8 @@ class xAbstractTableModel : public QAbstractTableModel {
 
     ~xAbstractTableModel() override = default;
 
+    void resetModel();
+
     bool appendMode() const { return append_mode_; }
 
     void setAppendMode(bool enabled, int hint_col = 0);
