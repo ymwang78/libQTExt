@@ -75,6 +75,7 @@ xItemDelegate::xItemDelegate(QObject *parent)
 QWidget *xItemDelegate::createEditor(QWidget *parent, const QStyleOptionViewItem &opt,
                                      const QModelIndex &idx) const {
     Q_UNUSED(opt);
+
     if (idx.data(xTableView::StringListEditRole).toBool()) {
         QVariant factoryData = idx.data(xTableView::StringListDialogFactoryRole);
         if (factoryData.isValid()) {
@@ -105,49 +106,78 @@ QWidget *xItemDelegate::createEditor(QWidget *parent, const QStyleOptionViewItem
         }
     }
     QVariant v = idx.data(Qt::EditRole);
-    switch (v.typeId()) {
-        case QMetaType::Bool: {
-            auto *container = new QWidget(parent);
-            auto *layout = new QHBoxLayout(container);
-            auto *editor = new QCheckBox(container);
-            layout->addWidget(editor);
-            layout->setAlignment(editor, Qt::AlignCenter);
-            layout->setContentsMargins(0, 0, 0, 0);
-            container->setLayout(layout);
-            return container;
-        }
-        case QMetaType::Int: {
-            QSpinBox *e = new QSpinBox(parent);
+    if (v.userType() == qMetaTypeId<zce::Any>()) {
+        zce::Any a = v.value<zce::Any>();
+        if (a.is_double() || a.is_i64()) {
+            // 如果是浮点数或整数，创建 QLineEdit 进行编辑
+            QLineEdit *e = new QLineEdit(parent);
             e->setFrame(false);
-            e->setRange(std::numeric_limits<int>::min(), std::numeric_limits<int>::max());
             return e;
         }
-        case QMetaType::Double: {
-            QLineEdit *e = new QLineEdit(parent);
-            e->setFrame(false);  // 保持无边框的嵌入式外观
-
-            // 2. 创建一个浮点数验证器
-            auto *validator = new QDoubleValidator(e);
-
-            // 3. 【最关键的一步】设置验证器接受科学计数法
-            //    (它同时也接受标准的小数表示法)
-            validator->setNotation(QDoubleValidator::ScientificNotation);
-
-            // 4. (可选) 设置范围和精度
-            validator->setRange(-1.0e20, 1.0e20, 15);  // DBL_MAX, 15位小数
-
-            // 5. 将验证器应用到行编辑器上
-            e->setValidator(validator);
+        if (a.is_boolean()) {
+            // 如果是布尔类型，创建 QCheckBox
+            QCheckBox *e = new QCheckBox(parent);
             return e;
         }
-        case QMetaType::QDateTime: {
-            QDateTimeEdit *e = new QDateTimeEdit(parent);
-            e->setCalendarPopup(true);
-            return e;
-        }
-        default: {
+        if (a.is_string()) {
+            // 如果是字符串，创建 QLineEdit
             QLineEdit *e = new QLineEdit(parent);
             return e;
+        }
+        if (a.is_vector() || a.is_dict()) {
+            // 如果是 vector 或 dict，创建一个文本编辑器或自定义编辑器
+            QLineEdit *e = new QLineEdit(parent);
+            return e;  // 可根据需求使用更复杂的编辑器
+        }
+        {
+            QLineEdit *e = new QLineEdit(parent);
+            return e;
+        }
+    } else {
+        switch (v.typeId()) {
+            case QMetaType::Bool: {
+                auto *container = new QWidget(parent);
+                auto *layout = new QHBoxLayout(container);
+                auto *editor = new QCheckBox(container);
+                layout->addWidget(editor);
+                layout->setAlignment(editor, Qt::AlignCenter);
+                layout->setContentsMargins(0, 0, 0, 0);
+                container->setLayout(layout);
+                return container;
+            }
+            case QMetaType::Int: {
+                QSpinBox *e = new QSpinBox(parent);
+                e->setFrame(false);
+                e->setRange(std::numeric_limits<int>::min(), std::numeric_limits<int>::max());
+                return e;
+            }
+            case QMetaType::Double: {
+                QLineEdit *e = new QLineEdit(parent);
+                e->setFrame(false);  // 保持无边框的嵌入式外观
+
+                // 2. 创建一个浮点数验证器
+                auto *validator = new QDoubleValidator(e);
+
+                // 3. 【最关键的一步】设置验证器接受科学计数法
+                //    (它同时也接受标准的小数表示法)
+                validator->setNotation(QDoubleValidator::ScientificNotation);
+
+                // 4. (可选) 设置范围和精度
+                validator->setRange(-1.0e20, 1.0e20, 15);  // DBL_MAX, 15位小数
+
+                // 5. 将验证器应用到行编辑器上
+                e->setValidator(validator);
+                return e;
+            }
+            case QMetaType::QDateTime: {
+                QDateTimeEdit *e = new QDateTimeEdit(parent);
+                e->setCalendarPopup(true);
+                return e;
+            }
+            default: {
+                QLineEdit *e = new QLineEdit(parent);
+                return e;
+            }
         }
     }
 }
@@ -163,91 +193,126 @@ void xItemDelegate::setEditorData(QWidget *editor, const QModelIndex &idx) const
     }
 
     QVariant v = idx.data(Qt::EditRole);
-    switch (v.typeId()) {
-        case QMetaType::Bool: {
-            QCheckBox *chk = editor->findChild<QCheckBox *>();
-            if (chk) {
-                chk->setChecked(v.toBool());
-            }
-            break;
+    if (v.userType() == qMetaTypeId<zce::Any>()) {
+        zce::Any a = v.value<zce::Any>();
+        if (a.is_double()) {
+            qobject_cast<QLineEdit *>(editor)->setText(QString::number(a.dbl()));
+        } else if (a.is_i64()) {
+            qobject_cast<QLineEdit *>(editor)->setText(QString::number(a.i64()));
+        } else if (a.is_boolean()) {
+            qobject_cast<QCheckBox *>(editor)->setChecked(a.boolean());
+        } else if (a.is_string()) {
+            qobject_cast<QLineEdit *>(editor)->setText(QString::fromStdString(a.str()));
+        } else if (a.is_vector() || a.is_dict()) {
+            qobject_cast<QLineEdit *>(editor)->setText(xTableView::anyToString(a));
+        } else {
+            QStyledItemDelegate::setEditorData(editor, idx);
         }
-        case QMetaType::QDateTime:
-            qobject_cast<QDateTimeEdit *>(editor)->setDateTime(v.toDateTime());
-            break;
-        case QMetaType::Double:
-            qobject_cast<QLineEdit *>(editor)->setText(v.toString());
-            break;
-        case QMetaType::Int:
-            qobject_cast<QSpinBox *>(editor)->setValue(v.toInt());
-            break;
-        default:
-            // 默认处理，包括字符串
-            if (auto *le = qobject_cast<QLineEdit *>(editor)) {
-                le->setText(v.toString());
+    } else {
+        switch (v.typeId()) {
+            case QMetaType::Bool: {
+                QCheckBox *chk = editor->findChild<QCheckBox *>();
+                if (chk) {
+                    chk->setChecked(v.toBool());
+                }
+                break;
             }
-            break;
+            case QMetaType::QDateTime:
+                qobject_cast<QDateTimeEdit *>(editor)->setDateTime(v.toDateTime());
+                break;
+            case QMetaType::Double:
+                qobject_cast<QLineEdit *>(editor)->setText(v.toString());
+                break;
+            case QMetaType::Int:
+                qobject_cast<QSpinBox *>(editor)->setValue(v.toInt());
+                break;
+            default:
+                // 默认处理，包括字符串
+                if (auto *le = qobject_cast<QLineEdit *>(editor)) {
+                    le->setText(v.toString());
+                }
+                // QStyledItemDelegate::setEditorData(editor, idx);
+                break;
+        }
     }
 }
 
-void xItemDelegate::setModelData(QWidget *editor, QAbstractItemModel *mdl,
+void xItemDelegate::setModelData(QWidget *editor, QAbstractItemModel *model,
                                  const QModelIndex &idx) const {
     QVariant out;
     QVariant originalData = idx.data(Qt::EditRole);
 
-    switch (originalData.typeId()) {
-        case QMetaType::Bool: {
-            // ==================== 【修复核心】 ====================
-            // 编辑器是QWidget容器，我们需要从中找到真正的QCheckBox来获取数据。
-            QCheckBox *chk = editor->findChild<QCheckBox *>();
-            if (chk) {
-                out = chk->isChecked();
+    if (originalData.userType() == qMetaTypeId<zce::Any>()) {
+        zce::Any newVal;
+        if (auto e = qobject_cast<QDoubleSpinBox *>(editor))
+            newVal = zce::Any(e->value());
+        else if (auto e = qobject_cast<QSpinBox *>(editor))
+            newVal = zce::Any((int64_t)e->value());
+        else if (auto e = qobject_cast<QCheckBox *>(editor))
+            newVal = zce::Any(e->isChecked());
+        else if (auto e = qobject_cast<QLineEdit *>(editor))
+            newVal = zce::Any::fromJsonString(e->text().toStdString());
+        out = QVariant::fromValue(newVal);
+        model->setData(idx, out, Qt::UserRole);
+        model->setData(idx, xTableView::anyToString(newVal), Qt::DisplayRole);
+        model->setData(idx, QString::fromStdString(newVal.toJsonString()), Qt::EditRole);
+    } else {
+        switch (originalData.typeId()) {
+            case QMetaType::Bool: {
+                QCheckBox *chk = editor->findChild<QCheckBox *>();
+                if (chk) {
+                    out = chk->isChecked();
+                }
+                break;
             }
-            // =====================================================
-            break;
-        }
-        // 其他类型的处理保持不变
-        default: {
-            if (auto *stringListEditor = qobject_cast<xTableStringListEditor *>(editor)) {
-                out = stringListEditor->getStringList();
-            } else if (auto *cb = qobject_cast<QComboBox *>(editor)) {
-                out = cb->currentText();
-            } else if (auto *sb = qobject_cast<QSpinBox *>(editor)) {
-                out = sb->value();
-            } else if (auto *ds = qobject_cast<QDoubleSpinBox *>(editor)) {
-                out = ds->value();
-            } else if (auto *dt = qobject_cast<QDateTimeEdit *>(editor)) {
-                out = dt->dateTime();
-            } else if (auto *le = qobject_cast<QLineEdit *>(editor)) {
-                out = le->text();
+            // 其他类型的处理保持不变
+            default: {
+                if (auto *stringListEditor = qobject_cast<xTableStringListEditor *>(editor)) {
+                    out = stringListEditor->getStringList();
+                } else if (auto *cb = qobject_cast<QComboBox *>(editor)) {
+                    out = cb->currentText();
+                } else if (auto *sb = qobject_cast<QSpinBox *>(editor)) {
+                    out = sb->value();
+                } else if (auto *ds = qobject_cast<QDoubleSpinBox *>(editor)) {
+                    out = ds->value();
+                } else if (auto *dt = qobject_cast<QDateTimeEdit *>(editor)) {
+                    out = dt->dateTime();
+                } else if (auto *le = qobject_cast<QLineEdit *>(editor)) {
+                    out = le->text();
+                }
             }
         }
-    }
-
-    if (out.isValid()) {
-        mdl->setData(idx, out, Qt::EditRole);
+        if (out.isValid()) {
+            model->setData(idx, out, Qt::EditRole);
+        }
     }
 }
 
 QString xItemDelegate::displayText(const QVariant &value, const QLocale &locale) const {
-    QMetaType::Type type = static_cast<QMetaType::Type>(value.typeId());
-    if (type == QMetaType::Double || type == QMetaType::Float) {
-        double val = value.toDouble();
-        switch (realnum_showmode_) {
-            case xTableView::MODE_FIXFLOAT:
-                // 使用固定小数位数格式，精度由 realnum_precision_ 控制
-                return locale.toString(val, 'f', realnum_precision_);
+    if (value.userType() == qMetaTypeId<zce::Any>()) {
+        zce::Any a = value.value<zce::Any>();
+        return QString::fromStdString(a.toJsonString());
+    } else {
+        QMetaType::Type type = static_cast<QMetaType::Type>(value.typeId());
+        if (type == QMetaType::Double || type == QMetaType::Float) {
+            double val = value.toDouble();
+            switch (realnum_showmode_) {
+                case xTableView::MODE_FIXFLOAT:
+                    // 使用固定小数位数格式，精度由 realnum_precision_ 控制
+                    return locale.toString(val, 'f', realnum_precision_);
 
-            case xTableView::MODE_SCIENTIFIC:
-                // 使用您自定义的科学计数法格式
-                return formatScientific(val, realnum_precision_);
+                case xTableView::MODE_SCIENTIFIC:
+                    // 使用您自定义的科学计数法格式
+                    return formatScientific(val, realnum_precision_);
 
-            case xTableView::MODE_GENERAL:
-            default:
-                // 使用“通用”格式，自动在常规和小数之间切换
-                return locale.toString(val, 'g', realnum_precision_ ? realnum_precision_ : 8);
+                case xTableView::MODE_GENERAL:
+                default:
+                    // 使用“通用”格式，自动在常规和小数之间切换
+                    return locale.toString(val, 'g', realnum_precision_ ? realnum_precision_ : 8);
+            }
         }
+        return QStyledItemDelegate::displayText(value, locale);
     }
-    return QStyledItemDelegate::displayText(value, locale);
 }
 
 void xItemDelegate::paint(QPainter *p, const QStyleOptionViewItem &opt,

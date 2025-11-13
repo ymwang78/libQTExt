@@ -28,6 +28,7 @@
 #include <QPaintEvent>
 #include <QMouseEvent>
 #include <optional>
+#include <zce/zce_any.h>
 
 class QAbstractItemModel;
 
@@ -139,7 +140,7 @@ class xAbstractTableModel : public QAbstractTableModel {
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 class xTableView : public QTableView {
-  public: // type or const definition
+  public:  // type or const definition
     static constexpr int ConditionRole = Qt::UserRole + 101;
     static constexpr int ComboBoxItemsRole = Qt::UserRole + 102;
     static constexpr int StringListEditRole = Qt::UserRole + 103;
@@ -150,8 +151,7 @@ class xTableView : public QTableView {
     static constexpr int StringMapDialogFactoryRole = Qt::UserRole + 108;
     enum NUMBER_DISPLAY_MODE { MODE_GENERAL, MODE_FIXFLOAT, MODE_SCIENTIFIC };
 
-  private: // data members
-
+  private:  // data members
     Q_OBJECT
     xTableViewSortFilter *proxy_ = nullptr;
     QTableView *frozen_row_view_ = nullptr;
@@ -167,12 +167,17 @@ class xTableView : public QTableView {
     QSet<int> bool_columns_;
     QMap<int, QVector<bool>> bool_column_memory_states_;
     xCheckableHeaderView *checkable_header_;
-    
+
   public:
+    static QString anyToString(const zce::Any &a);
 
     explicit xTableView(QWidget *parent = nullptr);
 
     bool isEditing() const;
+
+    void setItemAny(int row, int col, const zce::Any &any);
+    
+    zce::Any getItemAny(int row, int col) const;
 
     // Set the table view to stretch to fill the parent widget
     void setStretchToFill(bool enabled);
@@ -215,7 +220,7 @@ class xTableView : public QTableView {
     void setBoolColumn(int column, bool enabled);
     bool isBoolColumn(int column) const;
     QSet<int> getBoolColumns() const;
-    
+
     // Edit state preservation
     void setPreserveEditState(bool enabled);
     bool preserveEditState() const;
@@ -235,7 +240,7 @@ class xTableView : public QTableView {
     void resizeEvent(QResizeEvent *e);
 
     void scrollContentsBy(int dx, int dy);
-    
+
   private slots:
 
     void showHeaderMenu(const QPoint &pos);
@@ -246,7 +251,6 @@ class xTableView : public QTableView {
 
   private:
     // Copy / Paste / Delete --------------------------------------------------------------
-
     void copySelection();
 
     void paste();
@@ -272,9 +276,9 @@ class xTableView : public QTableView {
     void saveBoolColumnMemoryState(int column);
 
     void restoreBoolColumnMemoryState(int column);
-    
+
     // Edit state preservation helpers
-    void restoreEditorContent(QWidget* editor);
+    void restoreEditorContent(QWidget *editor);
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////

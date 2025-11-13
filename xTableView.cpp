@@ -347,7 +347,38 @@ xTableView::xTableView(QWidget *parent)
             &xTableView::updateFrozenGeometry);
 }
 
+QString xTableView::anyToString(const zce::Any &a) {
+    if (a.is_double()) return QString::number(a.dbl());
+    if (a.is_i64()) return QString::number(a.i64());
+    if (a.is_boolean()) return a.boolean() ? "true" : "false";
+    if (a.is_string()) return QString::fromStdString(a.str());
+    if (a.is_vector()) return QString("[vector %1 items]").arg(a.vector().size());
+    if (a.is_dict()) return QString("{dict %1 items}").arg(a.dict().size());
+    return "<unknown>";
+}
+
 bool xTableView::isEditing() const { return state() == QAbstractItemView::EditingState; }
+
+void xTableView::setItemAny(int row, int col, const zce::Any &any) {
+    auto *m = qobject_cast<QStandardItemModel *>(model());
+    if (!m) return;
+
+    if (row >= m->rowCount()) m->setRowCount(row + 1);
+    if (col >= m->columnCount()) m->setColumnCount(col + 1);
+
+    m->setData(m->index(row, col), QVariant::fromValue(any), Qt::UserRole);
+    m->setData(m->index(row, col), anyToString(any), Qt::DisplayRole);
+}
+
+zce::Any xTableView::getItemAny(int row, int col) const {
+    auto *m = qobject_cast<QStandardItemModel *>(model());
+    if (!m) return zce::Any();
+
+    QVariant v = m->data(m->index(row, col), Qt::UserRole);
+    if (!v.isValid()) return zce::Any();
+
+    return v.value<zce::Any>();
+}
 
 void xTableView::setStretchToFill(bool enabled) {
     is_stretch_to_fill_ = enabled;

@@ -21,6 +21,7 @@ class xItemDelegate : public QStyledItemDelegate {
     int realnum_precision_;
 
   public:
+
     explicit xItemDelegate(QObject *parent = nullptr);
 
     int getRealNumberMode() const { return realnum_showmode_; }
