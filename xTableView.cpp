@@ -624,7 +624,7 @@ void xTableView::copySelection() {
 }
 
 void xTableView::paste() {
-    QString text = QApplication::clipboard()->text();
+    QString text = QApplication::clipboard()->text().trimmed();
     if (text.isEmpty()) return;
     QStringList rows = text.split("\n");
     QModelIndex start = currentIndex();
