@@ -366,7 +366,7 @@ void xTableView::setItemAny(int row, int col, const zce::Any &any) {
     if (row >= m->rowCount()) m->setRowCount(row + 1);
     if (col >= m->columnCount()) m->setColumnCount(col + 1);
 
-    m->setData(m->index(row, col), QVariant::fromValue(any), Qt::UserRole);
+    m->setData(m->index(row, col), QVariant::fromValue(any), Qt::EditRole);
     m->setData(m->index(row, col), anyToString(any), Qt::DisplayRole);
 }
 
@@ -374,7 +374,7 @@ zce::Any xTableView::getItemAny(int row, int col) const {
     auto *m = qobject_cast<QStandardItemModel *>(model());
     if (!m) return zce::Any();
 
-    QVariant v = m->data(m->index(row, col), Qt::UserRole);
+    QVariant v = m->data(m->index(row, col), Qt::EditRole);
     if (!v.isValid()) return zce::Any();
 
     return v.value<zce::Any>();

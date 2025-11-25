@@ -204,7 +204,7 @@ void xItemDelegate::setEditorData(QWidget *editor, const QModelIndex &idx) const
         } else if (a.is_string()) {
             qobject_cast<QLineEdit *>(editor)->setText(QString::fromStdString(a.str()));
         } else if (a.is_vector() || a.is_dict()) {
-            qobject_cast<QLineEdit *>(editor)->setText(xTableView::anyToString(a));
+            qobject_cast<QLineEdit *>(editor)->setText(QString::fromStdString(a.toJsonString()));
         } else {
             QStyledItemDelegate::setEditorData(editor, idx);
         }
@@ -253,9 +253,9 @@ void xItemDelegate::setModelData(QWidget *editor, QAbstractItemModel *model,
         else if (auto e = qobject_cast<QLineEdit *>(editor))
             newVal = zce::Any::fromJsonString(e->text().toStdString());
         out = QVariant::fromValue(newVal);
-        model->setData(idx, out, Qt::UserRole);
+        //model->setData(idx, out, Qt::UserRole);
         model->setData(idx, xTableView::anyToString(newVal), Qt::DisplayRole);
-        model->setData(idx, QString::fromStdString(newVal.toJsonString()), Qt::EditRole);
+        model->setData(idx, out, Qt::EditRole);
     } else {
         switch (originalData.typeId()) {
             case QMetaType::Bool: {
