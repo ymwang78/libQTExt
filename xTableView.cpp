@@ -220,7 +220,7 @@ bool xAbstractTableModel::setData(const QModelIndex &index, const QVariant &valu
         beginInsertRows(QModelIndex(), realRowCount, realRowCount);
 
         // 2. 调用子类实现在底层数据源中创建一条空记录
-        bool success = insertNewBaseRow(realRowCount);
+        bool success = insertNewBaseRow(realRowCount, value);
 
         // 3. 通知视图插入完成
         endInsertRows();
@@ -650,11 +650,23 @@ void xTableView::removeSelectedCells() {
 }
 
 void xTableView::removeSelectedRows() {
-    auto sel = selectionModel()->selectedIndexes();
+    const QModelIndexList sel = selectionModel()->selectedIndexes();
+    if (sel.isEmpty()) return;
+
+    QSet<int> distinctRows;
     for (const QModelIndex &idx : sel) {
-        if (idx.isValid() && (idx.flags() & Qt::ItemIsEditable)) {
-            model()->removeRows(idx.row(), 1);
+        if (idx.isValid()) {
+            // 这里可以加上权限判断，比如是否允许删除
+            // 注意：Qt::ItemIsEditable 通常指能否修改文本，不一定代表能否删除行
+            // if (model()->flags(idx) & Qt::ItemIsEditable) {
+            distinctRows.insert(idx.row());
+            // }
         }
+    }
+    QList<int> sortedRows = distinctRows.values();
+    std::sort(sortedRows.begin(), sortedRows.end(), std::greater<int>());
+    for (int row : sortedRows) {
+        model()->removeRows(row, 1);
     }
 }
 

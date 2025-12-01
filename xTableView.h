@@ -134,7 +134,7 @@ class xAbstractTableModel : public QAbstractTableModel {
     // return true if new row is inserted successfully.
     // this function is called by the model when a new row is inserted.
     // begin/endInsertRows managed by the model, so you don't need to call them here.
-    virtual bool insertNewBaseRow(int row) = 0;
+    virtual bool insertNewBaseRow(int row, const QVariant &value) = 0;
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
