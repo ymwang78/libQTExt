@@ -323,20 +323,19 @@ void xItemDelegate::paint(QPainter *p, const QStyleOptionViewItem &opt,
 
     // Handle bool type specially
     if (data.typeId() == QMetaType::Bool) {
-        QStyleOptionButton opt;
-        // 增大 checkbox 尺寸，从 16x16 改为行高的 80%，最小 18 像素
+        QStyleOptionButton checkOpt;
+        checkOpt.state |= QStyle::State_Enabled;
+        checkOpt.state |= (data.toBool() ? QStyle::State_On : QStyle::State_Off);
+        checkOpt.palette = option.palette;
+        if (option.state & QStyle::State_HasFocus) checkOpt.state |= QStyle::State_HasFocus;
         int checkboxSize = qMax(18, static_cast<int>(option.rect.height() * 0.8));
-        opt.rect = QStyle::alignedRect(Qt::LeftToRight, Qt::AlignCenter,
-                                       QSize(checkboxSize, checkboxSize), option.rect);
-        opt.state |= (data.toBool() ? QStyle::State_On : QStyle::State_Off);
-        opt.state |= QStyle::State_Enabled;  // 确保 checkbox 处于启用状态
-
-        // 如果单元格被选中，绘制选中背景
+        checkOpt.rect = QStyle::alignedRect(Qt::LeftToRight, Qt::AlignCenter,
+                                            QSize(checkboxSize, checkboxSize), option.rect);
         if (option.state & QStyle::State_Selected) {
             p->fillRect(option.rect, option.palette.highlight());
         }
 
-        QApplication::style()->drawControl(QStyle::CE_CheckBox, &opt, p);
+        QApplication::style()->drawControl(QStyle::CE_CheckBox, &checkOpt, p);
         return;
     }
 
