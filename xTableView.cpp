@@ -187,7 +187,9 @@ QVariant xAbstractTableModel::data(const QModelIndex &index, int role) const {
             font.setItalic(true);
             return font;
         }
-        return {};
+        if (role == Qt::DisplayRole || role == Qt::EditRole) {
+            return {};
+        }
     }
     // 对于真实数据行，调用子类的实现
     return baseData(index, role);
