@@ -241,6 +241,8 @@ class xTableView : public QTableView {
 
     void scrollContentsBy(int dx, int dy);
 
+    void mousePressEvent(QMouseEvent *event) override;
+
   private slots:
 
     void showHeaderMenu(const QPoint &pos);

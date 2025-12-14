@@ -502,6 +502,21 @@ void xTableView::keyPressEvent(QKeyEvent *ev) {
     QTableView::keyPressEvent(ev);
 }
 
+void xTableView::mousePressEvent(QMouseEvent *event) {
+    // 先调用基类处理，确保选中行为正常
+    QTableView::mousePressEvent(event);
+
+    // 检查点击的单元格是否是 COMBOBOX 类型
+    QModelIndex index = indexAt(event->pos());
+    if (index.isValid() && event->button() == Qt::LeftButton) {
+        QVariant comboData = index.data(ComboBoxItemsRole);
+        if (comboData.isValid() && (index.flags() & Qt::ItemIsEditable)) {
+            // 立即触发编辑
+            edit(index);
+        }
+    }
+}
+
 void xTableView::resizeEvent(QResizeEvent *e) {
     if (!is_stretch_to_fill_ && !column_width_ratios_.isEmpty()) {
         if (column_width_ratios_.isEmpty()) return;
