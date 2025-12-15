@@ -305,9 +305,9 @@ static void setupAdaptiveTableStyle(xTableView *table) {
     qApp->installEventFilter(watcher);
 }
 
-xTableView::xTableView(QWidget *parent)
+xTableView::xTableView(QWidget *parent, bool is_column_sortable)
     : QTableView(parent),
-      proxy_(new xTableViewSortFilter(this)),
+      proxy_(is_column_sortable ? new xTableViewSortFilter(this) : nullptr),
       frozen_row_filter_(nullptr),
       frozen_row_view_(nullptr),
       frozen_col_view_(nullptr),
@@ -330,9 +330,15 @@ xTableView::xTableView(QWidget *parent)
     setItemDelegate(new xItemDelegate(this));
 
     horizontalHeader()->setDefaultAlignment(Qt::AlignCenter);
-    horizontalHeader()->setSectionsClickable(true);
-    connect(horizontalHeader(), &QHeaderView::sectionClicked, this, &xTableView::toggleSortColumn);
-    horizontalHeader()->setSortIndicatorShown(true);
+    if (is_column_sortable) {
+        horizontalHeader()->setSectionsClickable(true);
+        connect(horizontalHeader(), &QHeaderView::sectionClicked, this,
+                &xTableView::toggleSortColumn);
+        horizontalHeader()->setSortIndicatorShown(true);
+    } else {
+        horizontalHeader()->setSectionsClickable(false);
+        horizontalHeader()->setSortIndicatorShown(false);    
+    }
     horizontalHeader()->setContextMenuPolicy(Qt::CustomContextMenu);
 
     // 设置表格字体为 Consolas, Microsoft YaHei
@@ -400,15 +406,19 @@ void xTableView::setColumnWidthRatios(const QList<int> &ratios) {
 
 void xTableView::setSourceModel(QAbstractItemModel *m) {
     // 如果旧模型存在，先断开连接
-    QAbstractItemModel *oldSourceModel = proxy_->sourceModel();
+    if (proxy_) {
+        QAbstractItemModel *oldSourceModel = proxy_->sourceModel();
 
-    // 2. 如果旧的源模型存在，则断开连接
-    if (oldSourceModel) {
-        disconnect(oldSourceModel, &QAbstractItemModel::dataChanged, this, nullptr);
+        // 2. 如果旧的源模型存在，则断开连接
+        if (oldSourceModel) {
+            disconnect(oldSourceModel, &QAbstractItemModel::dataChanged, this, nullptr);
+        }
+
+        proxy_->setSourceModel(m);
+        QTableView::setModel(proxy_);    
+    } else {
+        QTableView::setModel(m); 
     }
-
-    proxy_->setSourceModel(m);
-    QTableView::setModel(proxy_);
 
     // 连接新模型
     if (m) {

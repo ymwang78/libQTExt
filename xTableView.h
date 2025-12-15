@@ -171,7 +171,7 @@ class xTableView : public QTableView {
   public:
     static QString anyToString(const zce::Any &a);
 
-    explicit xTableView(QWidget *parent = nullptr);
+    explicit xTableView(QWidget *parent = nullptr, bool is_column_sortable = true);
 
     bool isEditing() const;
 
