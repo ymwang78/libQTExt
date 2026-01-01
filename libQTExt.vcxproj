@@ -114,6 +114,7 @@
   <ItemGroup>
     <ClCompile Include="xDockWidget.cpp" />
     <ClCompile Include="xItemDelegate.cpp" />
+    <ClCompile Include="xLogView.cpp" />
     <ClCompile Include="xQwtChart.cpp" />
     <ClCompile Include="xTreeItem.cpp" />
     <ClCompile Include="xTreeView.cpp" />
@@ -122,6 +123,7 @@
     <QtMoc Include="xItemDelegate.h" />
     <QtMoc Include="xDockWidget.h" />
     <QtMoc Include="xQwtChart.h" />
+    <ClInclude Include="xLogView.h" />
     <ClInclude Include="xTreeItem.h" />
     <QtMoc Include="xTableHeader.h" />
     <QtMoc Include="xTableEditor.h" />
