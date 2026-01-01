@@ -19,6 +19,7 @@
 #include <QFont>
 #include <QScrollBar>
 #include <zce/zce_log.h>
+#include "xTheme.h"
 
 // ==========================================
 // LogModel 实现 (数据层)
@@ -183,6 +184,7 @@ xLogView::xLogView(int maxLines, QWidget* parent)
 xLogView::~xLogView() {}
 
 void xLogView::setupUI() {
+    Q_INIT_RESOURCE(qtext);
     QVBoxLayout* mainLayout = new QVBoxLayout(this);
     mainLayout->setContentsMargins(0, 0, 0, 0);
     mainLayout->setSpacing(0);
@@ -257,8 +259,9 @@ void xLogView::setupTitleBar() {
     titleBarLayout->addWidget(vline2);
 
     QLabel* searchIcon = new QLabel(this);
-    searchIcon->setPixmap(QPixmap(":/qtext/resource/search.svg")
-                              .scaled(16, 16, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+    QColor iconColor = searchIcon->palette().color(QPalette::WindowText);
+    QIcon icon = xTheme::createColorizedIcon(":/qtext/resource/search.svg", iconColor);
+    searchIcon->setPixmap(icon.pixmap(16, 16));
     searchIcon->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     titleBarLayout->addWidget(searchIcon);
     m_searchBox = new QLineEdit(m_titleBar);
@@ -271,7 +274,9 @@ void xLogView::setupTitleBar() {
     titleBarLayout->addWidget(m_autoScroll);
 
     m_clearButton = new QPushButton(tr("Clear"), m_titleBar);
-    QIcon clearIcon(":/qtext/resource/clear.svg");
+    QPalette pal = m_clearButton->palette();
+    QColor textColor = pal.color(QPalette::ButtonText);
+    QIcon clearIcon(xTheme::createColorizedIcon(":/qtext/resource/clear.svg", textColor));
     m_clearButton->setIcon(clearIcon);
     titleBarLayout->addWidget(m_clearButton);
 }

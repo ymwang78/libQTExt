@@ -32,6 +32,9 @@
     <ClInclude Include="xTreeItem.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="xTheme.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <QtMoc Include="xTableView.h">
@@ -82,6 +85,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="xLogView.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="xTheme.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

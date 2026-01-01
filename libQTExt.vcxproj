@@ -113,6 +113,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="xDockWidget.cpp" />
+    <ClCompile Include="xTheme.cpp" />
     <ClCompile Include="xItemDelegate.cpp" />
     <ClCompile Include="xLogView.cpp" />
     <ClCompile Include="xQwtChart.cpp" />
@@ -124,6 +125,7 @@
     <QtMoc Include="xDockWidget.h" />
     <QtMoc Include="xQwtChart.h" />
     <QtMoc Include="xLogView.h" />
+    <ClInclude Include="xTheme.h" />
     <ClInclude Include="xTreeItem.h" />
     <QtMoc Include="xTableHeader.h" />
     <QtMoc Include="xTableEditor.h" />
