@@ -231,6 +231,8 @@ void xLogView::setupTitleBar() {
     titleBarLayout->setContentsMargins(8, 2, 8, 2);
     titleBarLayout->setSpacing(6);
 
+    titleBarLayout->addStretch();
+
     auto* vline = new QFrame(this);
     vline->setFrameShape(QFrame::VLine);
     vline->setFrameShadow(QFrame::Sunken);

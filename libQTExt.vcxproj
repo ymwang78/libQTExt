@@ -123,7 +123,7 @@
     <QtMoc Include="xItemDelegate.h" />
     <QtMoc Include="xDockWidget.h" />
     <QtMoc Include="xQwtChart.h" />
-    <ClInclude Include="xLogView.h" />
+    <QtMoc Include="xLogView.h" />
     <ClInclude Include="xTreeItem.h" />
     <QtMoc Include="xTableHeader.h" />
     <QtMoc Include="xTableEditor.h" />

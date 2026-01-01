@@ -94,10 +94,8 @@ class xLogView : public QWidget {
 
   public:
 
-    explicit xLogView(int maxLines, QWidget* parent = nullptr);
+    explicit xLogView(int maxLines = 2000, QWidget* parent = nullptr);
     ~xLogView();
-    xLogView();
-
     void appendLog(ZLOG_LEVEL level, const QString& logText);
 
   private slots:
