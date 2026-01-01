@@ -1,4 +1,7 @@
-﻿<RCC>
-    <qresource prefix="/new/prefix1">
+<RCC>
+    <qresource prefix="/qtext">
+        <file>resource/clear.svg</file>
+        <file>resource/clear-all.svg</file>
+        <file>resource/search.svg</file>
     </qresource>
 </RCC>

@@ -257,7 +257,7 @@ void xLogView::setupTitleBar() {
     titleBarLayout->addWidget(vline2);
 
     QLabel* searchIcon = new QLabel(this);
-    searchIcon->setPixmap(QPixmap(":/images/viewlist.png")
+    searchIcon->setPixmap(QPixmap(":/qtext/resource/search.svg")
                               .scaled(16, 16, Qt::KeepAspectRatio, Qt::SmoothTransformation));
     searchIcon->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     titleBarLayout->addWidget(searchIcon);
@@ -271,7 +271,7 @@ void xLogView::setupTitleBar() {
     titleBarLayout->addWidget(m_autoScroll);
 
     m_clearButton = new QPushButton(tr("Clear"), m_titleBar);
-    QIcon clearIcon(":/images/data_delete.png");
+    QIcon clearIcon(":/qtext/resource/clear.svg");
     m_clearButton->setIcon(clearIcon);
     titleBarLayout->addWidget(m_clearButton);
 }

@@ -85,4 +85,20 @@
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
+  <ItemGroup>
+    <None Include="resource\clear.svg">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="resource\clear-all.svg">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="resource\search.svg">
+      <Filter>Resource Files</Filter>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
+    <QtRcc Include="qtext.qrc">
+      <Filter>Resource Files</Filter>
+    </QtRcc>
+  </ItemGroup>
 </Project>

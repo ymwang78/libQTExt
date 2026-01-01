@@ -132,6 +132,14 @@
     <ClCompile Include="xTableHeader.cpp" />
     <ClCompile Include="xTableView.cpp" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="resource\clear-all.svg" />
+    <None Include="resource\clear.svg" />
+    <None Include="resource\search.svg" />
+  </ItemGroup>
+  <ItemGroup>
+    <QtRcc Include="qtext.qrc" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Condition="Exists('$(QtMsBuild)\qt.targets')">
     <Import Project="$(QtMsBuild)\qt.targets" />
