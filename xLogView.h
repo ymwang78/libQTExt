@@ -103,6 +103,7 @@ class xLogView : public QWidget {
     void applyFilter();
     void onClearLog();
     void setAutoScroll(bool enabled);
+    void onScrollBarValueChanged(int value);  // 滚动条位置变化
 
   private:
     void setupUI();

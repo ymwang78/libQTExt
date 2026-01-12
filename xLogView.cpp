@@ -222,6 +222,10 @@ void xLogView::setupUI() {
     connect(m_searchBox, &QLineEdit::textChanged, this, &xLogView::applyFilter);
     connect(m_clearButton, &QPushButton::clicked, this, &xLogView::onClearLog);
     connect(m_autoScroll, &QCheckBox::toggled, this, &xLogView::setAutoScroll);
+    
+    // 连接滚动条信号，检测用户手动滚动
+    QScrollBar* scrollBar = m_listView->verticalScrollBar();
+    connect(scrollBar, &QScrollBar::valueChanged, this, &xLogView::onScrollBarValueChanged);
 }
 
 void xLogView::setupTitleBar() {
@@ -313,7 +317,20 @@ void xLogView::onUpdateTimer() {
 
     // --- 智能滚动 ---
     if (m_autoScroll && m_autoScroll->isChecked()) {
-        m_listView->scrollToBottom();
+        // 检查滚动条是否在底部（允许小误差，避免浮点数精度问题）
+        QScrollBar* scrollBar = m_listView->verticalScrollBar();
+        bool isAtBottom = (scrollBar->value() >= scrollBar->maximum() - 1);
+        
+        if (isAtBottom) {
+            // 在底部时才自动滚动
+            m_listView->scrollToBottom();
+        } else {
+            // 不在底部，说明用户手动滚动了，取消自动滚动
+            // 使用 blockSignals 避免触发 setAutoScroll 槽函数
+            m_autoScroll->blockSignals(true);
+            m_autoScroll->setChecked(false);
+            m_autoScroll->blockSignals(false);
+        }
     }
 }
 
@@ -331,3 +348,32 @@ void xLogView::onClearLog() {
 void xLogView::setAutoScroll(bool enabled) {
     if (enabled) m_listView->scrollToBottom();
 }
+
+void xLogView::onScrollBarValueChanged(int value) {
+    Q_UNUSED(value);
+    
+    // 当用户手动拖动滚动条时，检查是否在底部
+    QScrollBar* scrollBar = m_listView->verticalScrollBar();
+    bool isAtBottom = (scrollBar->value() >= scrollBar->maximum() - 1);
+    
+    if (!isAtBottom) {
+        // 如果不在底部且自动滚动是开启的，则取消自动滚动
+        if (m_autoScroll && m_autoScroll->isChecked()) {
+            // 使用 blockSignals 避免触发 setAutoScroll 槽函数
+            m_autoScroll->blockSignals(true);
+            m_autoScroll->setChecked(false);
+            m_autoScroll->blockSignals(false);
+        }
+    } else {
+        // 如果滚动到底部且自动滚动是关闭的，自动恢复自动滚动
+        if (m_autoScroll && !m_autoScroll->isChecked()) {
+            // 使用 blockSignals 避免触发 setAutoScroll 槽函数
+            m_autoScroll->blockSignals(true);
+            m_autoScroll->setChecked(true);
+            m_autoScroll->blockSignals(false);
+            // 立即滚动到底部
+            m_listView->scrollToBottom();
+        }
+    }
+}
+ 
