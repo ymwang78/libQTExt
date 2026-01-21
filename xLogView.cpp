@@ -1,4 +1,4 @@
-﻿// ***************************************************************
+// ***************************************************************
 //  xLogView   version:  1.0   -  date:  2025/08/13
 //  -------------------------------------------------------------
 //  Yongming Wang(wangym@gmail.com)
@@ -342,6 +342,10 @@ void xLogView::applyFilter() {
 }
 
 void xLogView::onClearLog() {
+    if (m_model) m_model->clear();
+}
+
+void xLogView::clear() {
     if (m_model) m_model->clear();
 }
 

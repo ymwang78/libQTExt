@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 // ***************************************************************
 //  xLogView   version:  1.0   -  date:  2025/08/13
 //  -------------------------------------------------------------
@@ -97,6 +97,7 @@ class xLogView : public QWidget {
     explicit xLogView(int maxLines = 2000, QWidget* parent = nullptr);
     ~xLogView();
     void appendLog(ZLOG_LEVEL level, const QString& logText);
+    void clear();
 
   private slots:
     void onUpdateTimer();  // 定时器槽函数
