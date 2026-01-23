@@ -61,6 +61,7 @@ class xLogModel : public QAbstractListModel {
     // 自定义接口
     void appendLogs(const QList<xLogItem>& newLogs);  // 批量添加
     void clear();
+    void refreshThemeColors();  // 刷新主题颜色（当主题切换时调用）
 
   private:
     QList<xLogItem> m_data;
@@ -105,6 +106,9 @@ class xLogView : public QWidget {
     void onClearLog();
     void setAutoScroll(bool enabled);
     void onScrollBarValueChanged(int value);  // 滚动条位置变化
+
+  protected:
+    bool eventFilter(QObject* watched, QEvent* event) override;
 
   private:
     void setupUI();

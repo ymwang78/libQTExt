@@ -18,6 +18,9 @@
 #include <QDebug>
 #include <QFont>
 #include <QScrollBar>
+#include <QApplication>
+#include <QWidget>
+#include <QEvent>
 #include <zce/zce_log.h>
 #include "xTheme.h"
 
@@ -86,6 +89,15 @@ void xLogModel::clear() {
     endResetModel();
 }
 
+void xLogModel::refreshThemeColors() {
+    // 当主题切换时，通知视图刷新所有行的前景色
+    if (m_data.size() > 0) {
+        QModelIndex topLeft = index(0, 0);
+        QModelIndex bottomRight = index(m_data.size() - 1, 0);
+        emit dataChanged(topLeft, bottomRight, {Qt::ForegroundRole});
+    }
+}
+
 QString xLogModel::getLevelString(int level) const {
     // 简单映射，根据你的枚举调整
     switch (level) {
@@ -110,27 +122,53 @@ QString xLogModel::getLevelString(int level) const {
     }
 }
 
+// 亮色主题颜色表
+static const QColor lightThemeColors[] = {
+    QColor(128, 128, 128),  // TRACE: Gray #808080
+    QColor(0, 128, 255),    // DEBUG: Blue #0080ff
+    QColor(0, 0, 0),        // INFO: Black #000000
+    QColor(255, 140, 0),    // WARN: Orange #ff8c00
+    QColor(255, 0, 0),      // ERROR: Red #ff0000
+    QColor(128, 0, 128),    // FATAL: Purple #800080
+    QColor(0, 128, 0),      // BIZDATA: Green #008000
+    QColor(192, 192, 192)   // SILENT: Silver #c0c0c0
+};
+
+// 暗色主题颜色表（更亮的颜色以保证在深色背景上可读）
+static const QColor darkThemeColors[] = {
+    QColor(158, 158, 158),  // TRACE: Light Gray #9e9e9e
+    QColor(100, 181, 246),  // DEBUG: Light Blue #64b5f6
+    QColor(224, 224, 224),  // INFO: Light Gray #e0e0e0
+    QColor(255, 183, 77),   // WARN: Orange #ffb74d
+    QColor(239, 83, 80),    // ERROR: Light Red #ef5350
+    QColor(206, 147, 216),  // FATAL: Light Purple #ce93d8
+    QColor(129, 199, 132),  // BIZDATA: Green #81c784
+    QColor(176, 176, 176)   // SILENT: #b0b0b0
+};
+
 QColor xLogModel::getLevelColor(int level) const {
-    switch (level) {
-        case 0:
-            return QColor(128, 128, 128);  // Gray
-        case 1:
-            return QColor(0, 128, 255);  // Blue
-        case 2:
-            return QColor(0, 0, 0);  // Black
-        case 3:
-            return QColor(255, 140, 0);  // Orange
-        case 4:
-            return QColor(255, 0, 0);  // Red
-        case 5:
-            return QColor(128, 0, 128);  // Purple
-        case 6:
-            return QColor(0, 128, 0);  // Green
-        case 7:
-            return QColor(192, 192, 192);  // Silver
-        default:
-            return QColor(0, 0, 0);
+    // 检测当前主题（亮色或暗色）
+    bool isDarkTheme = false;
+    QWidget* parentWidget = qobject_cast<QWidget*>(parent());
+    if (parentWidget) {
+        QPalette palette = parentWidget->palette();
+        // 通过 Base 颜色的亮度判断主题
+        // lightness() 返回 0-255，< 128 表示暗色主题
+        int lightness = palette.color(QPalette::Base).lightness();
+        isDarkTheme = (lightness < 128);
     }
+    // 如果无法获取 palette，默认使用亮色主题
+    
+    // 根据主题选择颜色表
+    const QColor* colorTable = isDarkTheme ? darkThemeColors : lightThemeColors;
+    
+    // 确保 level 在有效范围内
+    if (level >= 0 && level < 8) {
+        return colorTable[level];
+    }
+    
+    // 默认返回（根据主题）
+    return isDarkTheme ? QColor(224, 224, 224) : QColor(0, 0, 0);
 }
 
 // ==========================================
@@ -181,7 +219,18 @@ xLogView::xLogView(int maxLines, QWidget* parent)
     m_updateTimer->start();
 }
 
-xLogView::~xLogView() {}
+xLogView::~xLogView() {
+    qApp->removeEventFilter(this);
+}
+
+bool xLogView::eventFilter(QObject* watched, QEvent* event) {
+    if (event->type() == QEvent::ApplicationPaletteChange) {
+        if (m_model) {
+            m_model->refreshThemeColors();
+        }
+    }
+    return QWidget::eventFilter(watched, event);
+}
 
 void xLogView::setupUI() {
     Q_INIT_RESOURCE(qtext);
@@ -226,6 +275,9 @@ void xLogView::setupUI() {
     // 连接滚动条信号，检测用户手动滚动
     QScrollBar* scrollBar = m_listView->verticalScrollBar();
     connect(scrollBar, &QScrollBar::valueChanged, this, &xLogView::onScrollBarValueChanged);
+    
+    // 监听主题切换：使用 QEvent::ApplicationPaletteChange（paletteChanged 已弃用）
+    qApp->installEventFilter(this);
 }
 
 void xLogView::setupTitleBar() {
