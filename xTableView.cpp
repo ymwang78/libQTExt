@@ -52,12 +52,22 @@ void xTableViewSortFilter::setColumnFilter(int column, const QVariantMap &condit
         *rule = fr;
     else
         filters_.append(fr);
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
+    beginFilterChange();
+    endFilterChange();
+#else
     invalidateFilter();
+#endif
 }
 
 void xTableViewSortFilter::clearFilters() {
     filters_.clear();
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
+    beginFilterChange();
+    endFilterChange();
+#else
     invalidateFilter();
+#endif
 }
 
 bool xTableViewSortFilter::lessThan(const QModelIndex &source_left,
@@ -124,8 +134,15 @@ class xTableViewTopRowsFilter : public QSortFilterProxyModel {
   public:
     xTableViewTopRowsFilter(QObject *parent = nullptr) : QSortFilterProxyModel(parent) {}
     void setLimit(int limit) {
+        if (limit_ == limit) return;
         limit_ = limit;
+
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
+        beginFilterChange();
+        endFilterChange();
+#else
         invalidateFilter();
+#endif
     }
 
   protected:

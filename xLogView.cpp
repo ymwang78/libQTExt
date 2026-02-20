@@ -181,13 +181,31 @@ xLogFilterProxy::xLogFilterProxy(QObject* parent) : QSortFilterProxyModel(parent
 }
 
 void xLogFilterProxy::setMinLevel(int level) {
+    if (m_minLevel == level) {
+        return;
+    }
     m_minLevel = level;
-    invalidateFilter();  // 触发重新过滤
+
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
+    beginFilterChange();
+    endFilterChange();
+#else
+    invalidateFilter();
+#endif
 }
 
 void xLogFilterProxy::setSearchText(const QString& text) {
+    if (m_searchText == text.toLower()) {
+        return;
+    }
     m_searchText = text.toLower();
-    invalidateFilter();  // 触发重新过滤
+
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
+    beginFilterChange();
+    endFilterChange();
+#else
+    invalidateFilter();
+#endif
 }
 
 bool xLogFilterProxy::filterAcceptsRow(int sourceRow, const QModelIndex& sourceParent) const {
