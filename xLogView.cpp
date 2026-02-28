@@ -186,7 +186,7 @@ void xLogFilterProxy::setMinLevel(int level) {
     }
     m_minLevel = level;
 
-#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
+#if QT_VERSION >= QT_VERSION_CHECK(6, 9, 0)
     beginFilterChange();
     endFilterChange();
 #else
@@ -200,7 +200,7 @@ void xLogFilterProxy::setSearchText(const QString& text) {
     }
     m_searchText = text.toLower();
 
-#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
+#if QT_VERSION >= QT_VERSION_CHECK(6, 9, 0)
     beginFilterChange();
     endFilterChange();
 #else
