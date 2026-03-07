@@ -381,26 +381,32 @@ void xLogView::onUpdateTimer() {
         m_pendingLogs.clear();
     }
 
-    // 批量添加到 Model
-    // 此时运行在主线程，可以安全操作 Model
-    m_model->appendLogs(batch);
-
-    // --- 智能滚动 ---
+    // --- 在 appendLogs 之前判断是否在底部，避免布局更新后 scrollBar 未及时更新导致误判 ---
+    bool shouldAutoScroll = false;
     if (m_autoScroll && m_autoScroll->isChecked()) {
-        // 检查滚动条是否在底部（允许小误差，避免浮点数精度问题）
         QScrollBar* scrollBar = m_listView->verticalScrollBar();
-        bool isAtBottom = (scrollBar->value() >= scrollBar->maximum() - 1);
-        
+        int maxVal = scrollBar->maximum();
+        bool isAtBottom = (maxVal <= 0 || scrollBar->value() >= maxVal - 1);
         if (isAtBottom) {
-            // 在底部时才自动滚动
-            m_listView->scrollToBottom();
+            shouldAutoScroll = true;
         } else {
             // 不在底部，说明用户手动滚动了，取消自动滚动
-            // 使用 blockSignals 避免触发 setAutoScroll 槽函数
             m_autoScroll->blockSignals(true);
             m_autoScroll->setChecked(false);
             m_autoScroll->blockSignals(false);
         }
+    }
+
+    // 批量添加到 Model（此时运行在主线程，可以安全操作 Model）
+    m_model->appendLogs(batch);
+
+    // 延迟一帧再滚动到底部，确保 QListView 和 QScrollBar 已完成布局更新
+    if (shouldAutoScroll) {
+        QTimer::singleShot(0, this, [this]() {
+            if (m_listView) {
+                m_listView->scrollToBottom();
+            }
+        });
     }
 }
 
