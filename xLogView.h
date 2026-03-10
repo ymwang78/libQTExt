@@ -105,7 +105,7 @@ class xLogView : public QWidget {
     void applyFilter();
     void onClearLog();
     void setAutoScroll(bool enabled);
-    void onScrollBarValueChanged(int value);  // 滚动条位置变化
+    void onScrollBarActionTriggered(int action);  // 用户操作滚动条（不响应程序调用）
 
   protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
@@ -129,4 +129,7 @@ class xLogView : public QWidget {
     QTimer* m_updateTimer;
     QList<xLogItem> m_pendingLogs;  // 待处理日志缓冲区
     QMutex m_logMutex;             // 保护缓冲区的锁
+
+    // 自动滚动状态：true = 当前应自动滚动（滚动条在底部）
+    bool m_autoScrollEnabled = true;
 };

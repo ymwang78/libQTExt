@@ -1,4 +1,4 @@
-// ***************************************************************
+﻿// ***************************************************************
 //  xLogView   version:  1.0   -  date:  2025/08/13
 //  -------------------------------------------------------------
 //  Yongming Wang(wangym@gmail.com)
@@ -269,9 +269,9 @@ void xLogView::setupUI() {
     m_listView->setModel(m_proxyModel);
 
     // --- UI 性能设置 ---
-    m_listView->setUniformItemSizes(true);          // 固定行高
-    m_listView->setLayoutMode(QListView::Batched);  // 批处理布局
-    m_listView->setBatchSize(100);
+    // uniformItemSizes=true 已使 layout 为 O(1)，不需要 BatchedLayout
+    // （BatchedLayout 会分批延迟排列，导致 scrollToBottom 被内部重排覆盖）
+    m_listView->setUniformItemSizes(true);
 
     // 设置字体
     QFont monoFont("Consolas");
@@ -290,9 +290,10 @@ void xLogView::setupUI() {
     connect(m_clearButton, &QPushButton::clicked, this, &xLogView::onClearLog);
     connect(m_autoScroll, &QCheckBox::toggled, this, &xLogView::setAutoScroll);
     
-    // 连接滚动条信号，检测用户手动滚动
+    // 连接滚动条信号，使用 actionTriggered 而非 valueChanged，
+    // 只响应用户主动操作（拖动、点击轨道、滚轮），过滤掉 scrollToBottom() 等程序调用
     QScrollBar* scrollBar = m_listView->verticalScrollBar();
-    connect(scrollBar, &QScrollBar::valueChanged, this, &xLogView::onScrollBarValueChanged);
+    connect(scrollBar, &QScrollBar::actionTriggered, this, &xLogView::onScrollBarActionTriggered);
     
     // 监听主题切换：使用 QEvent::ApplicationPaletteChange（paletteChanged 已弃用）
     qApp->installEventFilter(this);
@@ -381,32 +382,12 @@ void xLogView::onUpdateTimer() {
         m_pendingLogs.clear();
     }
 
-    // --- 在 appendLogs 之前判断是否在底部，避免布局更新后 scrollBar 未及时更新导致误判 ---
-    bool shouldAutoScroll = false;
-    if (m_autoScroll && m_autoScroll->isChecked()) {
-        QScrollBar* scrollBar = m_listView->verticalScrollBar();
-        int maxVal = scrollBar->maximum();
-        bool isAtBottom = (maxVal <= 0 || scrollBar->value() >= maxVal - 1);
-        if (isAtBottom) {
-            shouldAutoScroll = true;
-        } else {
-            // 不在底部，说明用户手动滚动了，取消自动滚动
-            m_autoScroll->blockSignals(true);
-            m_autoScroll->setChecked(false);
-            m_autoScroll->blockSignals(false);
-        }
-    }
-
     // 批量添加到 Model（此时运行在主线程，可以安全操作 Model）
     m_model->appendLogs(batch);
 
-    // 延迟一帧再滚动到底部，确保 QListView 和 QScrollBar 已完成布局更新
-    if (shouldAutoScroll) {
-        QTimer::singleShot(0, this, [this]() {
-            if (m_listView) {
-                m_listView->scrollToBottom();
-            }
-        });
+    // 只有用户将滚动条置于底部时才自动跟随
+    if (m_autoScrollEnabled) {
+        m_listView->scrollToBottom();
     }
 }
 
@@ -426,34 +407,25 @@ void xLogView::clear() {
 }
 
 void xLogView::setAutoScroll(bool enabled) {
+    m_autoScrollEnabled = enabled;
     if (enabled) m_listView->scrollToBottom();
 }
 
-void xLogView::onScrollBarValueChanged(int value) {
-    Q_UNUSED(value);
-    
-    // 当用户手动拖动滚动条时，检查是否在底部
-    QScrollBar* scrollBar = m_listView->verticalScrollBar();
-    bool isAtBottom = (scrollBar->value() >= scrollBar->maximum() - 1);
-    
-    if (!isAtBottom) {
-        // 如果不在底部且自动滚动是开启的，则取消自动滚动
-        if (m_autoScroll && m_autoScroll->isChecked()) {
-            // 使用 blockSignals 避免触发 setAutoScroll 槽函数
-            m_autoScroll->blockSignals(true);
-            m_autoScroll->setChecked(false);
-            m_autoScroll->blockSignals(false);
+void xLogView::onScrollBarActionTriggered(int action) {
+    Q_UNUSED(action);
+
+    // actionTriggered 在 value 实际变化之前触发，用 singleShot(0) 等 value 更新完再检查
+    QTimer::singleShot(10, this, [this]() {
+        QScrollBar* scrollBar = m_listView->verticalScrollBar();
+        bool isAtBottom = (scrollBar->maximum() == 0 || scrollBar->value() >= scrollBar->maximum() - 1);
+
+        if (isAtBottom != m_autoScrollEnabled) {
+            m_autoScrollEnabled = isAtBottom;
+            if (m_autoScroll) {
+                m_autoScroll->blockSignals(true);
+                m_autoScroll->setChecked(isAtBottom);
+                m_autoScroll->blockSignals(false);
+            }
         }
-    } else {
-        // 如果滚动到底部且自动滚动是关闭的，自动恢复自动滚动
-        if (m_autoScroll && !m_autoScroll->isChecked()) {
-            // 使用 blockSignals 避免触发 setAutoScroll 槽函数
-            m_autoScroll->blockSignals(true);
-            m_autoScroll->setChecked(true);
-            m_autoScroll->blockSignals(false);
-            // 立即滚动到底部
-            m_listView->scrollToBottom();
-        }
-    }
+    });
 }
- 
