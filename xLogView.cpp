@@ -1,4 +1,4 @@
-﻿// ***************************************************************
+// ***************************************************************
 //  xLogView   version:  1.0   -  date:  2025/08/13
 //  -------------------------------------------------------------
 //  Yongming Wang(wangym@gmail.com)
@@ -186,7 +186,7 @@ void xLogFilterProxy::setMinLevel(int level) {
     }
     m_minLevel = level;
 
-#if QT_VERSION >= QT_VERSION_CHECK(6, 9, 0)
+#if QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)
     beginFilterChange();
     endFilterChange();
 #else
