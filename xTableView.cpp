@@ -300,7 +300,11 @@ static void applyTableTheme(QTableView *table, bool darkMode) {
     table->viewport()->update();
 }
 
-xPaletteChangeWatcher::xPaletteChangeWatcher(xTableView *target) : m_target(target) {}
+xPaletteChangeWatcher::xPaletteChangeWatcher(xTableView *target) : QObject(target), m_target(target) {}
+
+xPaletteChangeWatcher::~xPaletteChangeWatcher() {
+    if (qApp) qApp->removeEventFilter(this);
+}
 
 bool xPaletteChangeWatcher::eventFilter(QObject *obj, QEvent *event) {
     if (event->type() == QEvent::ApplicationPaletteChange && m_target) {

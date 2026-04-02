@@ -82,6 +82,8 @@ class xPaletteChangeWatcher : public QObject {
   public:
     explicit xPaletteChangeWatcher(xTableView *target);
 
+    ~xPaletteChangeWatcher() override;
+    
   protected:
     bool eventFilter(QObject *obj, QEvent *event) override;
 
