@@ -1,0 +1,33 @@
+﻿# 忽略所有内容
+/*
+# 允许根目录下的所有文件（不包括文件夹）
+!/*.*
+.vscode/*
+.claude/*
+/*.md
+!.vscode/settings.json
+!.vscode/launch.json
+!.vscode/tasks.json
+
+/local.*
+/*.vcxproj.user
+
+# 取消忽略特定文件夹
+!bin/
+!include/
+!lib/x64/
+!libsrc/
+
+bin/*
+include/boost/*
+libsrc/*
+!libsrc/lexilla
+!libsrc/libhiredis
+!libsrc/libjson
+!libsrc/liblua
+!libsrc/libpbc
+!libsrc/libzlib
+!libsrc/scintilla
+
+
+
