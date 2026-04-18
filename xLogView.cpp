@@ -1,4 +1,4 @@
-// ***************************************************************
+﻿// ***************************************************************
 //  xLogView   version:  1.0   -  date:  2025/08/13
 //  -------------------------------------------------------------
 //  Yongming Wang(wangym@gmail.com)
@@ -297,6 +297,7 @@ void xLogView::setupUI() {
     
     // 监听主题切换：使用 QEvent::ApplicationPaletteChange（paletteChanged 已弃用）
     qApp->installEventFilter(this);
+    applyFilter();
 }
 
 void xLogView::setupTitleBar() {
@@ -323,6 +324,7 @@ void xLogView::setupTitleBar() {
     m_levelFilter->addItem("ERROR+", static_cast<int>(ZLOG_ERROR));
     m_levelFilter->addItem("FATAL ONLY", static_cast<int>(ZLOG_FATAL));
     m_levelFilter->addItem("SILENT", static_cast<int>(ZLOG_NONEL));
+    m_levelFilter->setCurrentIndex(2);  // 默认 INFO+
     m_levelFilter->setMaximumWidth(80);
     m_levelFilter->view()->setMinimumWidth(100);
     m_levelFilter->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
