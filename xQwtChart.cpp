@@ -10,6 +10,8 @@
 // ***************************************************************
 #include "xQwtChart.h"
 
+#include <QMouseEvent>
+
 void xQwtPlot::replot() {
     QwtPlot::replot();
 
@@ -87,6 +89,20 @@ bool XAxisOnlyZoomer::end(bool ok) {
         emit xAxisZoomed(zoomRect());
     }
     return result;
+}
+
+void XAxisOnlyZoomer::widgetMouseDoubleClickEvent(QMouseEvent* event) {
+    // 左键双击 = 一键还原视图。
+    // 双击事件序列是 Press → Release → Press → DblClick → Release，
+    // 第二次 Press 已经把 picker 推到 active 状态、rubber band 已经开始画了，
+    // 所以这里先 reset() 清掉这次还没完成的选择，再发 resetRequested 信号。
+    // 不调用基类，避免基类把双击再当成一次额外的 begin()。
+    if (event && event->button() == Qt::LeftButton) {
+        reset();
+        emit resetRequested();
+        return;
+    }
+    QwtPlotZoomer::widgetMouseDoubleClickEvent(event);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////

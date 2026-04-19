@@ -71,8 +71,12 @@ class XAxisOnlyZoomer : public QwtPlotZoomer {
     // Override end to emit our custom signal
     bool end(bool ok = true) override;
 
+    // 在画布上双击鼠标 → 发出 resetRequested 信号（外部 chart 据此恢复原始范围）
+    void widgetMouseDoubleClickEvent(QMouseEvent* event) override;
+
   signals:
     void xAxisZoomed(const QRectF& rect);  // Signal for synchronization
+    void resetRequested();                 // 用户双击画布请求恢复原始视图
 
   private:
     int m_minSelectionPixels = 8;
