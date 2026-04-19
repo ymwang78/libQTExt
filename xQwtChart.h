@@ -58,6 +58,12 @@ class XAxisOnlyZoomer : public QwtPlotZoomer {
   public:
     explicit XAxisOnlyZoomer(QWidget* canvas);
 
+    // 框选最小像素宽度阈值。鼠标在画布上单击或仅做微小拖动（拖出来的橡皮筋
+    // 矩形宽度 < 该值）时，accept() 会直接返回 false，从而忽略这次缩放，
+    // 避免"轻轻一点就把图缩到一小段"的误触。默认 8 像素，0 = 关闭该过滤。
+    void setMinSelectionPixels(int px) { m_minSelectionPixels = qMax(0, px); }
+    int minSelectionPixels() const { return m_minSelectionPixels; }
+
   protected:
     // Override to validate zoom rectangle - only allow X-axis changes
     bool accept(QPolygon& pa) const override;
@@ -67,6 +73,9 @@ class XAxisOnlyZoomer : public QwtPlotZoomer {
 
   signals:
     void xAxisZoomed(const QRectF& rect);  // Signal for synchronization
+
+  private:
+    int m_minSelectionPixels = 8;
 };
 
 

@@ -31,6 +31,15 @@ bool XAxisOnlyZoomer::accept(QPolygon& pa) const {
 
     // Get the rectangle from the polygon
     QRect polyRect = pa.boundingRect();
+
+    // 单击 / 微小拖动过滤：橡皮筋矩形的像素宽度小于阈值时，
+    // 视为误触（既包括"鼠标单击未拖动"的零像素情况，也包括只拖了几个像素），
+    // 直接拒绝缩放。注意这里只看 X 像素宽度，因为本类只做 X 轴缩放，
+    // 用户哪怕画了一个很高但非常窄的矩形，缩出来也是没意义的一小段 X 区间。
+    if (m_minSelectionPixels > 0 && polyRect.width() < m_minSelectionPixels) {
+        return false;
+    }
+
     QRectF rect = invTransform(polyRect);
 
     if (plot()) {
