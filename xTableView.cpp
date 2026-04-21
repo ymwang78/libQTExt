@@ -362,6 +362,9 @@ xTableView::xTableView(QWidget *parent, bool is_column_sortable)
     }
     horizontalHeader()->setContextMenuPolicy(Qt::CustomContextMenu);
 
+    connect(checkable_header_, &xCheckableHeaderView::checkboxToggled, this,
+            &xTableView::onHeaderCheckboxToggled);
+
     // 设置表格字体为 Consolas, Microsoft YaHei
     QFont tableFont;
     tableFont.setFamily("Consolas, Microsoft YaHei");
