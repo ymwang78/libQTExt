@@ -32,6 +32,94 @@
 #include <QDoubleSpinBox>
 #include <QComboBox>
 #include <QTextCursor>
+#include <QStyleOptionButton>
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+xTableViewBoolHeader::xTableViewBoolHeader(const QString& title, QWidget* parent)
+    : QWidget(parent), title_(title), check_state_(Qt::Unchecked), pressed_(false) {
+    setMouseTracking(true);
+}
+
+void xTableViewBoolHeader::setCheckState(Qt::CheckState state) {
+    if (check_state_ == state) {
+        return;
+    }
+    check_state_ = state;
+    update();
+    emit checkStateChanged(check_state_);
+}
+
+Qt::CheckState xTableViewBoolHeader::checkState() const {
+    return check_state_;
+}
+
+void xTableViewBoolHeader::paintEvent(QPaintEvent* event) {
+    Q_UNUSED(event);
+    QPainter painter(this);
+
+    QStyleOptionButton option;
+    option.rect = calculateCheckBoxRect();
+    option.state = QStyle::State_Enabled;
+    if (pressed_) {
+        option.state |= QStyle::State_Sunken;
+    }
+    switch (check_state_) {
+    case Qt::Checked:
+        option.state |= QStyle::State_On;
+        break;
+    case Qt::PartiallyChecked:
+        option.state |= QStyle::State_NoChange;
+        break;
+    default:
+        option.state |= QStyle::State_Off;
+        break;
+    }
+    style()->drawControl(QStyle::CE_CheckBox, &option, &painter, this);
+
+    painter.drawText(calculateTextRect(), Qt::AlignVCenter | Qt::AlignLeft, title_);
+}
+
+void xTableViewBoolHeader::mousePressEvent(QMouseEvent* event) {
+    if (event->button() == Qt::LeftButton && calculateCheckBoxRect().contains(event->pos())) {
+        pressed_ = true;
+        update();
+        event->accept();
+        return;
+    }
+    QWidget::mousePressEvent(event);
+}
+
+void xTableViewBoolHeader::mouseReleaseEvent(QMouseEvent* event) {
+    if (pressed_ && event->button() == Qt::LeftButton) {
+        pressed_ = false;
+        if (calculateCheckBoxRect().contains(event->pos())) {
+            setCheckState(check_state_ == Qt::Checked ? Qt::Unchecked : Qt::Checked);
+        }
+        update();
+        event->accept();
+        return;
+    }
+    QWidget::mouseReleaseEvent(event);
+}
+
+QSize xTableViewBoolHeader::sizeHint() const {
+    const QFontMetrics fm(font());
+    return QSize(fm.horizontalAdvance(title_) + 28, qMax(fm.height(), 16) + 8);
+}
+
+void xTableViewBoolHeader::updateCheckState() {
+    update();
+}
+
+QRect xTableViewBoolHeader::calculateCheckBoxRect() const {
+    const int size = 16;
+    return QRect(4, (height() - size) / 2, size, size);
+}
+
+QRect xTableViewBoolHeader::calculateTextRect() const {
+    return rect().adjusted(24, 0, 0, 0);
+}
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
