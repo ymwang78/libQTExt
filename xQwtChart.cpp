@@ -11,6 +11,7 @@
 #include "xQwtChart.h"
 
 #include <QMouseEvent>
+#include <QPen>
 
 void xQwtPlot::replot() {
     QwtPlot::replot();
