@@ -285,7 +285,7 @@ QVariant xAbstractTableModel::data(const QModelIndex &index, int role) const {
     // 检查是否是占位符行
     if (append_mode_ && index.row() == realRowCount) {
         if (role == Qt::DisplayRole && index.column() == hint_column_) {
-            return "* Click to add a new item...";
+            return tr("* Click to add a new item...");
         }
         if (role == Qt::FontRole) {
             QFont font;

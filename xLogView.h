@@ -109,10 +109,12 @@ class xLogView : public QWidget {
 
   protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
+    void changeEvent(QEvent* event) override;
 
   private:
     void setupUI();
     void setupTitleBar();
+    void retranslateUi();
 
     int m_maxLines;
     // UI 组件

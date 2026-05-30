@@ -21,6 +21,7 @@
 #include <QApplication>
 #include <QWidget>
 #include <QEvent>
+#include <QSignalBlocker>
 #include <zce/zce_log.h>
 #include "xTheme.h"
 
@@ -250,6 +251,13 @@ bool xLogView::eventFilter(QObject* watched, QEvent* event) {
     return QWidget::eventFilter(watched, event);
 }
 
+void xLogView::changeEvent(QEvent* event) {
+    if (event && event->type() == QEvent::LanguageChange) {
+        retranslateUi();
+    }
+    QWidget::changeEvent(event);
+}
+
 void xLogView::setupUI() {
     Q_INIT_RESOURCE(qtext);
     QVBoxLayout* mainLayout = new QVBoxLayout(this);
@@ -300,6 +308,24 @@ void xLogView::setupUI() {
     applyFilter();
 }
 
+void xLogView::retranslateUi() {
+    if (m_levelFilter) {
+        const QSignalBlocker blocker(m_levelFilter);
+        const int currentIndex = m_levelFilter->currentIndex();
+        m_levelFilter->setItemText(0, tr("ALL"));
+        m_levelFilter->setItemText(1, tr("DEBUG+"));
+        m_levelFilter->setItemText(2, tr("INFO+"));
+        m_levelFilter->setItemText(3, tr("WARN+"));
+        m_levelFilter->setItemText(4, tr("ERROR+"));
+        m_levelFilter->setItemText(5, tr("FATAL ONLY"));
+        m_levelFilter->setItemText(6, tr("SILENT"));
+        m_levelFilter->setCurrentIndex(currentIndex);
+    }
+    if (m_searchBox) m_searchBox->setPlaceholderText(tr("Search..."));
+    if (m_autoScroll) m_autoScroll->setText(tr("Auto Scroll"));
+    if (m_clearButton) m_clearButton->setText(tr("Clear"));
+}
+
 void xLogView::setupTitleBar() {
     m_titleBar = new QFrame(this);
     m_titleBar->setFrameShape(QFrame::NoFrame);
@@ -317,13 +343,13 @@ void xLogView::setupTitleBar() {
     titleBarLayout->addWidget(vline);
 
     m_levelFilter = new QComboBox(m_titleBar);
-    m_levelFilter->addItem("ALL", static_cast<int>(ZLOG_TRACE));
-    m_levelFilter->addItem("DEBUG+", static_cast<int>(ZLOG_DEBUG));
-    m_levelFilter->addItem("INFO+", static_cast<int>(ZLOG_INFOR));
-    m_levelFilter->addItem("WARN+", static_cast<int>(ZLOG_WARNI));
-    m_levelFilter->addItem("ERROR+", static_cast<int>(ZLOG_ERROR));
-    m_levelFilter->addItem("FATAL ONLY", static_cast<int>(ZLOG_FATAL));
-    m_levelFilter->addItem("SILENT", static_cast<int>(ZLOG_NONEL));
+    m_levelFilter->addItem(tr("ALL"), static_cast<int>(ZLOG_TRACE));
+    m_levelFilter->addItem(tr("DEBUG+"), static_cast<int>(ZLOG_DEBUG));
+    m_levelFilter->addItem(tr("INFO+"), static_cast<int>(ZLOG_INFOR));
+    m_levelFilter->addItem(tr("WARN+"), static_cast<int>(ZLOG_WARNI));
+    m_levelFilter->addItem(tr("ERROR+"), static_cast<int>(ZLOG_ERROR));
+    m_levelFilter->addItem(tr("FATAL ONLY"), static_cast<int>(ZLOG_FATAL));
+    m_levelFilter->addItem(tr("SILENT"), static_cast<int>(ZLOG_NONEL));
     m_levelFilter->setCurrentIndex(2);  // 默认 INFO+
     m_levelFilter->setMaximumWidth(80);
     m_levelFilter->view()->setMinimumWidth(100);
