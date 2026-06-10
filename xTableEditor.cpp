@@ -12,7 +12,8 @@
 #include <QHBoxLayout>
 #include <QLineEdit>
 #include <QPointer>
-#include <QPushButton>
+#include <QSizePolicy>
+#include <QToolButton>
 
 static QStringList splitStringListEditorText(const QString& text) {
     QStringList values;
@@ -75,37 +76,41 @@ xTableStringListEditor::xTableStringListEditor(
         "outline: none;"
         "}"));
 
-    button_ = new QPushButton("...", this);
-
-    button_->setFixedSize(22, 18);
+    button_ = new QToolButton(this);
+    button_->setText(QStringLiteral("..."));
+    button_->setAutoRaise(true);
+    button_->setFixedWidth(24);
+    button_->setMinimumHeight(0);
+    button_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
     button_->setCursor(Qt::ArrowCursor);
     button_->setFocusPolicy(Qt::NoFocus);
 
-    // --- 核心修改：使用详细的样式表来定义按钮外观 ---
-    button_->setStyleSheet(
-        "QPushButton {"
-        "    background-color: #888888;"
-        "    color: white;"
-        "    border: 1px solid #555555;"
-        "    padding: 0px;"
-        "    border-radius: 3px;"
-        "    font-weight: bold;"
+    button_->setStyleSheet(QStringLiteral(
+        "QToolButton {"
+        "background: #F7F8FA;"
+        "color: #4B5563;"
+        "border: 1px solid #C9CDD4;"
+        "border-left-color: #DDE1E7;"
+        "border-radius: 0px;"
+        "padding: 0px;"
+        "font-weight: 600;"
         "}"
-        "QPushButton:hover {"
-        "    background-color: #999999;"
+        "QToolButton:hover {"
+        "background: #EEF3FF;"
+        "border-color: #8CA8E8;"
+        "color: #1F3F8B;"
         "}"
-        "QPushButton:pressed {"
-        "    background-color: #777777;"
-        "    border-style: inset;"
-        "}"
-    );
+        "QToolButton:pressed {"
+        "background: #DDE7FF;"
+        "border-color: #6F8FD8;"
+        "}"));
 
     auto* layout = new QHBoxLayout(this);
     // 3. 边距设置为0，让编辑器能完全填满单元格，看起来更原生
     layout->setContentsMargins(0, 0, 0, 0);
-    layout->setSpacing(1);  // 在文本框和按钮之间留出1像素的微小间距
-    layout->addWidget(line_edit_);
-    layout->addWidget(button_);  // 不再需要特殊对齐，布局会自动处理
+    layout->setSpacing(0);
+    layout->addWidget(line_edit_, 1);
+    layout->addWidget(button_, 0);
     setLayout(layout);
 
     setFocusProxy(line_edit_);
@@ -117,15 +122,15 @@ xTableStringListEditor::xTableStringListEditor(
         current_list_ = splitStringListEditorText(line_edit_->text());
         emit editingFinished();
     });
-    connect(button_, &QPushButton::pressed, this, [this]() {
+    connect(button_, &QToolButton::pressed, this, [this]() {
         dialog_open_ = true;
     });
-    connect(button_, &QPushButton::released, this, [this]() {
+    connect(button_, &QToolButton::released, this, [this]() {
         if (!button_->underMouse()) {
             dialog_open_ = false;
         }
     });
-    connect(button_, &QPushButton::clicked, this, &xTableStringListEditor::onButtonClicked);
+    connect(button_, &QToolButton::clicked, this, &xTableStringListEditor::onButtonClicked);
 }
 
 void xTableStringListEditor::setStringList(const QStringList& list) {

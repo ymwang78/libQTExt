@@ -17,12 +17,12 @@
 #include "xTableView.h"
 
 class QLineEdit;
-class QPushButton;
+class QToolButton;
 
 class xTableStringListEditor : public QWidget {
     Q_OBJECT
     QLineEdit* line_edit_;
-    QPushButton* button_;
+    QToolButton* button_;
     QStringList current_list_;
     xTableView::StringListDialogFactory dialog_factory_;
     std::function<void(const QStringList&)> commit_callback_;
