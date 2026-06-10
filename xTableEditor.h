@@ -13,6 +13,7 @@
 #include <QWidget>
 #include <QStringList>
 #include <QDialog>
+#include <functional>
 #include "xTableView.h"
 
 class QLineEdit;
@@ -24,12 +25,17 @@ class xTableStringListEditor : public QWidget {
     QPushButton* button_;
     QStringList current_list_;
     xTableView::StringListDialogFactory dialog_factory_;
+    std::function<void(const QStringList&)> commit_callback_;
+    bool dialog_open_ = false;
 
   public:
     explicit xTableStringListEditor(xTableView::StringListDialogFactory factory,
+                                    std::function<void(const QStringList&)> commit_callback = {},
                                     QWidget* parent = nullptr);
 
     void setStringList(const QStringList& list);
+
+    void setText(const QString& text);
 
     QStringList getStringList() const;
 
@@ -39,4 +45,5 @@ class xTableStringListEditor : public QWidget {
   private slots:
     void onButtonClicked();
 
+    void onTextEdited(const QString& text);
 };

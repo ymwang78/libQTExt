@@ -41,12 +41,16 @@ class xItemDelegate : public QStyledItemDelegate {
     void setModelData(QWidget *editor, QAbstractItemModel *mdl,
                       const QModelIndex &idx) const override;
 
+    void updateEditorGeometry(QWidget *editor, const QStyleOptionViewItem &option,
+                              const QModelIndex &idx) const override;
+
     QString displayText(const QVariant &value, const QLocale &locale) const override;
 
     void paint(QPainter *p, const QStyleOptionViewItem &opt, const QModelIndex &idx) const override;
 
     bool editorEvent(QEvent *event, QAbstractItemModel *model, const QStyleOptionViewItem &option,
                      const QModelIndex &index) override;
+
   private slots:
 
     void commitAndCloseEditor();
