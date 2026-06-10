@@ -22,6 +22,7 @@
 #include <QWidget>
 #include <QEvent>
 #include <QSignalBlocker>
+#include <QStringList>
 #include <zce/zce_log.h>
 #include "xTheme.h"
 
@@ -386,16 +387,40 @@ void xLogView::setupTitleBar() {
 
 // 线程安全的添加日志接口
 void xLogView::appendLog(xLogLevel level, const QString& logText) {
-    xLogItem item;
-    item.level = level;
-    item.text = logText;
-    item.time = QTime::currentTime();
+    QString normalizedText = logText;
+    normalizedText.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
+    normalizedText.replace(QChar('\r'), QChar('\n'));
+
+    QStringList lines = normalizedText.split(QChar('\n'));
+    while (!lines.isEmpty() && lines.last().isEmpty()) {
+        lines.removeLast();
+    }
+    if (lines.isEmpty()) {
+        return;
+    }
+
+    QList<xLogItem> items;
+    items.reserve(lines.size());
+    const QTime now = QTime::currentTime();
+    for (const QString& line : lines) {
+        if (line.isEmpty()) {
+            continue;
+        }
+        xLogItem item;
+        item.level = level;
+        item.text = line;
+        item.time = now;
+        items.append(std::move(item));
+    }
+    if (items.isEmpty()) {
+        return;
+    }
 
     QMutexLocker locker(&m_logMutex);
-    m_pendingLogs.append(std::move(item));
+    m_pendingLogs.append(items);
 
     // 保护：防止主线程太卡导致 pendingLogs 无限增长
-    if (m_pendingLogs.size() > m_maxLines) {
+    while (m_pendingLogs.size() > m_maxLines) {
         m_pendingLogs.removeFirst();
     }
 }

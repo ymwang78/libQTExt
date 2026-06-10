@@ -1,4 +1,4 @@
-// ***************************************************************
+﻿// ***************************************************************
 //  xItemDelegate   version:  1.0   -  date:  2025/07/06
 //  -------------------------------------------------------------
 //  Yongming Wang(wangym@gmail.com)
@@ -133,7 +133,7 @@ static void polishLineEditEditor(QLineEdit *editor, const QStyleOptionViewItem *
         editor->setFont(editorFont);
         editor->setPalette(option->palette);
     }
-    editor->setStyleSheet(
+    const QString styleSheet =
         QStringLiteral(
             "QLineEdit {"
             "background: white;"
@@ -150,8 +150,10 @@ static void polishLineEditEditor(QLineEdit *editor, const QStyleOptionViewItem *
             "border: none;"
             "outline: none;"
             "}")
-            .arg(fontSizeRule, heightRule));
-    editor->setFont(editorFont);
+            .arg(fontSizeRule, heightRule);
+    if (editor->styleSheet() != styleSheet) {
+        editor->setStyleSheet(styleSheet);
+    }
 }
 
 QWidget *xItemDelegate::createEditor(QWidget *parent, const QStyleOptionViewItem &opt,
@@ -169,7 +171,7 @@ QWidget *xItemDelegate::createEditor(QWidget *parent, const QStyleOptionViewItem
                         model->setData(persistentIndex, selection, Qt::EditRole);
                     }
                 };
-                auto *editor = new xTableStringListEditor(factory, commitSelection, parent);
+                auto *editor = new xTableStringListEditor(factory, parent, commitSelection);
                 connect(editor, &xTableStringListEditor::editingFinished, this,
                         &xItemDelegate::commitAndCloseEditor);
                 return editor;

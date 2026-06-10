@@ -30,8 +30,8 @@ class xTableStringListEditor : public QWidget {
 
   public:
     explicit xTableStringListEditor(xTableView::StringListDialogFactory factory,
-                                    std::function<void(const QStringList&)> commit_callback = {},
-                                    QWidget* parent = nullptr);
+                                    QWidget* parent = nullptr,
+                                    std::function<void(const QStringList&)> commit_callback = {});
 
     void setStringList(const QStringList& list);
 

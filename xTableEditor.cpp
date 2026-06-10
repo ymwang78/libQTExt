@@ -15,6 +15,15 @@
 #include <QSizePolicy>
 #include <QToolButton>
 
+static QStringList splitStringListEditorTextBy(const QString& text, QChar separator) {
+#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
+    return text.split(separator, Qt::SkipEmptyParts);
+#else
+    return text.split(separator, QString::SkipEmptyParts);
+#endif
+}
+
+// 直接输入使用 ',' 和 ';' 作为分隔符；弹窗结果以 current_list_ 保留精确值。
 static QStringList splitStringListEditorText(const QString& text) {
     QStringList values;
     const QString raw = text.trimmed();
@@ -23,9 +32,9 @@ static QStringList splitStringListEditorText(const QString& text) {
     }
 
     if (raw.contains(';')) {
-        values = raw.split(';', Qt::SkipEmptyParts);
+        values = splitStringListEditorTextBy(raw, ';');
     } else if (raw.contains(',')) {
-        values = raw.split(',', Qt::SkipEmptyParts);
+        values = splitStringListEditorTextBy(raw, ',');
     } else {
         values = {raw};
     }
@@ -40,8 +49,8 @@ static QStringList splitStringListEditorText(const QString& text) {
 // 构造函数接收工厂函数
 xTableStringListEditor::xTableStringListEditor(
     xTableView::StringListDialogFactory factory,
-    std::function<void(const QStringList&)> commit_callback,
-    QWidget* parent)
+    QWidget* parent,
+    std::function<void(const QStringList&)> commit_callback)
     : QWidget(parent),
       dialog_factory_(std::move(factory)),
       commit_callback_(std::move(commit_callback)) {
@@ -61,20 +70,6 @@ xTableStringListEditor::xTableStringListEditor(
     line_edit_->setFrame(false);  // 保持文本框无边框，与单元格融为一体
     line_edit_->setReadOnly(false);
     line_edit_->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-    line_edit_->setStyleSheet(QStringLiteral(
-        "QLineEdit {"
-        "background: white;"
-        "border: none;"
-        "margin: 0px;"
-        "padding: 0px 8px;"
-        "selection-background-color: #1344B1;"
-        "selection-color: white;"
-        "}"
-        "QLineEdit:focus {"
-        "background: white;"
-        "border: none;"
-        "outline: none;"
-        "}"));
 
     button_ = new QToolButton(this);
     button_->setText(QStringLiteral("..."));
@@ -83,6 +78,7 @@ xTableStringListEditor::xTableStringListEditor(
     button_->setMinimumHeight(0);
     button_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
     button_->setCursor(Qt::ArrowCursor);
+    // 保持焦点在 line edit，避免按钮按下/释放触发 editingFinished。
     button_->setFocusPolicy(Qt::NoFocus);
 
     button_->setStyleSheet(QStringLiteral(
@@ -144,7 +140,7 @@ void xTableStringListEditor::setText(const QString& text) {
 }
 
 QStringList xTableStringListEditor::getStringList() const {
-    return splitStringListEditorText(line_edit_->text());
+    return current_list_;
 }
 
 void xTableStringListEditor::onTextEdited(const QString& text) {
@@ -160,10 +156,10 @@ void xTableStringListEditor::onButtonClicked() {
         dialog_open_ = true;
         auto commitCallback = commit_callback_;
         std::optional<QStringList> result = dialog_factory_(this, current_list_);
-        if (result.has_value() && commitCallback) {
-            commitCallback(result.value());
-        }
         if (!guard) {
+            if (result.has_value() && commitCallback) {
+                commitCallback(result.value());
+            }
             return;
         }
         dialog_open_ = false;
