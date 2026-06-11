@@ -151,7 +151,6 @@ void xTableStringListEditor::onButtonClicked() {
 
     if (dialog_factory_) {
         // 调用工厂函数，它会创建、执行对话框并返回结果
-        current_list_ = splitStringListEditorText(line_edit_->text());
         QPointer<xTableStringListEditor> guard(this);
         dialog_open_ = true;
         auto commitCallback = commit_callback_;
