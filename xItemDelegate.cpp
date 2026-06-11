@@ -17,9 +17,15 @@
 #include <QMenu>
 #include <QKeyEvent>
 #include <QHeaderView>
+#include <QHBoxLayout>
+#include <QLayout>
+#include <QLineEdit>
 #include <QPainter>
 #include <QCheckBox>
 #include <QMouseEvent>
+#include <QPersistentModelIndex>
+#include <QPointer>
+#include <QSizePolicy>
 #include <QStyle>
 #include <QStyleOption>
 #include <QStyledItemDelegate>
@@ -72,16 +78,100 @@ xItemDelegate::xItemDelegate(QObject *parent)
       realnum_showmode_(xTableView::MODE_GENERAL),
       realnum_precision_(0) {}
 
+static QLineEdit *editorLineEdit(QWidget *editor) {
+    if (!editor) return nullptr;
+    if (auto *lineEdit = qobject_cast<QLineEdit *>(editor)) return lineEdit;
+    return editor->findChild<QLineEdit *>();
+}
+
+static Qt::Alignment editorAlignmentFor(const QModelIndex &index) {
+    QVariant alignmentData = index.data(Qt::TextAlignmentRole);
+    if (alignmentData.isValid()) {
+        return static_cast<Qt::Alignment>(alignmentData.toInt()) | Qt::AlignVCenter;
+    }
+
+    QVariant data = index.data(Qt::EditRole);
+    if (data.typeId() == QMetaType::Double || data.typeId() == QMetaType::Float ||
+        data.typeId() == QMetaType::Int || data.typeId() == QMetaType::LongLong) {
+        return Qt::AlignRight | Qt::AlignVCenter;
+    }
+    if (data.typeId() == QMetaType::Bool) {
+        return Qt::AlignCenter | Qt::AlignVCenter;
+    }
+    return Qt::AlignLeft | Qt::AlignVCenter;
+}
+
+static void polishLineEditEditor(QLineEdit *editor, const QStyleOptionViewItem *option,
+                                 const QModelIndex &index) {
+    if (!editor) return;
+
+    QFont editorFont = option ? option->font : editor->font();
+    QString fontSizeRule;
+    QString heightRule;
+    if (editorFont.pixelSize() > 0) {
+        fontSizeRule = QStringLiteral("font-size: %1px;").arg(editorFont.pixelSize());
+    } else if (editorFont.pointSizeF() > 0) {
+        fontSizeRule =
+            QStringLiteral("font-size: %1pt;").arg(editorFont.pointSizeF(), 0, 'f', 1);
+    }
+    if (option && option->rect.height() > 0) {
+        heightRule = QStringLiteral("min-height: 0px; max-height: %1px;")
+                         .arg(option->rect.height());
+    }
+
+    editor->setFrame(false);
+    editor->setContentsMargins(0, 0, 0, 0);
+    editor->setTextMargins(8, 0, 8, 0);
+    editor->setAutoFillBackground(false);
+    editor->setAlignment(editorAlignmentFor(index));
+    editor->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
+    editor->setMinimumSize(0, 0);
+    if (option) {
+        editor->setFixedHeight(option->rect.height());
+    }
+    if (option) {
+        editor->setFont(editorFont);
+        editor->setPalette(option->palette);
+    }
+    const QString styleSheet =
+        QStringLiteral(
+            "QLineEdit {"
+            "background: white;"
+            "border: none;"
+            "margin: 0px;"
+            "padding: 0px;"
+            "%1"
+            "%2"
+            "selection-background-color: #1344B1;"
+            "selection-color: white;"
+            "}"
+            "QLineEdit:focus {"
+            "background: white;"
+            "border: none;"
+            "outline: none;"
+            "}")
+            .arg(fontSizeRule, heightRule);
+    if (editor->styleSheet() != styleSheet) {
+        editor->setStyleSheet(styleSheet);
+    }
+}
+
 QWidget *xItemDelegate::createEditor(QWidget *parent, const QStyleOptionViewItem &opt,
                                      const QModelIndex &idx) const {
-    Q_UNUSED(opt);
-
     if (idx.data(xTableView::StringListEditRole).toBool()) {
         QVariant factoryData = idx.data(xTableView::StringListDialogFactoryRole);
         if (factoryData.isValid()) {
             auto factory = factoryData.value<xTableView::StringListDialogFactory>();
             if (factory) {
-                auto *editor = new xTableStringListEditor(factory, parent);
+                QPointer<QAbstractItemModel> model =
+                    const_cast<QAbstractItemModel*>(idx.model());
+                QPersistentModelIndex persistentIndex(idx);
+                auto commitSelection = [model, persistentIndex](const QStringList& selection) {
+                    if (model && persistentIndex.isValid()) {
+                        model->setData(persistentIndex, selection, Qt::EditRole);
+                    }
+                };
+                auto *editor = new xTableStringListEditor(factory, parent, commitSelection);
                 connect(editor, &xTableStringListEditor::editingFinished, this,
                         &xItemDelegate::commitAndCloseEditor);
                 return editor;
@@ -111,7 +201,7 @@ QWidget *xItemDelegate::createEditor(QWidget *parent, const QStyleOptionViewItem
         if (a.is_double() || a.is_i64()) {
             // 如果是浮点数或整数，创建 QLineEdit 进行编辑
             QLineEdit *e = new QLineEdit(parent);
-            e->setFrame(false);
+            polishLineEditEditor(e, &opt, idx);
             return e;
         }
         if (a.is_boolean()) {
@@ -122,15 +212,18 @@ QWidget *xItemDelegate::createEditor(QWidget *parent, const QStyleOptionViewItem
         if (a.is_string()) {
             // 如果是字符串，创建 QLineEdit
             QLineEdit *e = new QLineEdit(parent);
+            polishLineEditEditor(e, &opt, idx);
             return e;
         }
         if (a.is_vector() || a.is_dict()) {
             // 如果是 vector 或 dict，创建一个文本编辑器或自定义编辑器
             QLineEdit *e = new QLineEdit(parent);
+            polishLineEditEditor(e, &opt, idx);
             return e;  // 可根据需求使用更复杂的编辑器
         }
         {
             QLineEdit *e = new QLineEdit(parent);
+            polishLineEditEditor(e, &opt, idx);
             return e;
         }
     } else {
@@ -153,7 +246,7 @@ QWidget *xItemDelegate::createEditor(QWidget *parent, const QStyleOptionViewItem
             }
             case QMetaType::Double: {
                 QLineEdit *e = new QLineEdit(parent);
-                e->setFrame(false);  // 保持无边框的嵌入式外观
+                polishLineEditEditor(e, &opt, idx);
 
                 // 2. 创建一个浮点数验证器
                 auto *validator = new QDoubleValidator(e);
@@ -176,6 +269,7 @@ QWidget *xItemDelegate::createEditor(QWidget *parent, const QStyleOptionViewItem
             }
             default: {
                 QLineEdit *e = new QLineEdit(parent);
+                polishLineEditEditor(e, &opt, idx);
                 return e;
             }
         }
@@ -184,7 +278,12 @@ QWidget *xItemDelegate::createEditor(QWidget *parent, const QStyleOptionViewItem
 
 void xItemDelegate::setEditorData(QWidget *editor, const QModelIndex &idx) const {
     if (auto *stringListEditor = qobject_cast<xTableStringListEditor *>(editor)) {
-        stringListEditor->setStringList(idx.data(Qt::EditRole).toStringList());
+        QVariant data = idx.data(Qt::EditRole);
+        if (data.canConvert<QStringList>() && data.userType() != QMetaType::QString) {
+            stringListEditor->setStringList(data.toStringList());
+        } else {
+            stringListEditor->setText(data.toString());
+        }
         return;
     }
     if (auto *cb = qobject_cast<QComboBox *>(editor)) {
@@ -285,6 +384,27 @@ void xItemDelegate::setModelData(QWidget *editor, QAbstractItemModel *model,
         if (out.isValid()) {
             model->setData(idx, out, Qt::EditRole);
         }
+    }
+}
+
+void xItemDelegate::updateEditorGeometry(QWidget *editor, const QStyleOptionViewItem &option,
+                                         const QModelIndex &idx) const {
+    if (!editor) return;
+
+    const QRect editorRect = option.rect;
+    editor->setContentsMargins(0, 0, 0, 0);
+    editor->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
+    editor->setMinimumSize(0, 0);
+    editor->setFont(option.font);
+    editor->setGeometry(editorRect);
+    editor->setFixedHeight(editorRect.height());
+    if (auto *layout = editor->layout()) {
+        layout->setContentsMargins(0, 0, 0, 0);
+        layout->setSpacing(0);
+    }
+
+    if (auto *lineEdit = editorLineEdit(editor)) {
+        polishLineEditEditor(lineEdit, &option, idx);
     }
 }
 
