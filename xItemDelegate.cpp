@@ -133,24 +133,33 @@ static void polishLineEditEditor(QLineEdit *editor, const QStyleOptionViewItem *
         editor->setFont(editorFont);
         editor->setPalette(option->palette);
     }
+    const QPalette palette = option ? option->palette : QApplication::palette();
+    const bool darkMode = palette.color(QPalette::Base).lightness() < 128 ||
+                          palette.color(QPalette::Window).lightness() < 128;
+    const QString background = darkMode ? QStringLiteral("#1e1e1e") : QStringLiteral("white");
+    const QString textColor = darkMode ? QStringLiteral("#f0f0f0") : QStringLiteral("#111111");
+    const QString selectionBackground =
+        darkMode ? QStringLiteral("#007acc") : QStringLiteral("#1344B1");
     const QString styleSheet =
         QStringLiteral(
             "QLineEdit {"
-            "background: white;"
+            "background: %1;"
+            "color: %2;"
             "border: none;"
             "margin: 0px;"
             "padding: 0px;"
-            "%1"
-            "%2"
-            "selection-background-color: #1344B1;"
+            "%3"
+            "%4"
+            "selection-background-color: %5;"
             "selection-color: white;"
             "}"
             "QLineEdit:focus {"
-            "background: white;"
+            "background: %1;"
+            "color: %2;"
             "border: none;"
             "outline: none;"
             "}")
-            .arg(fontSizeRule, heightRule);
+            .arg(background, textColor, fontSizeRule, heightRule, selectionBackground);
     if (editor->styleSheet() != styleSheet) {
         editor->setStyleSheet(styleSheet);
     }

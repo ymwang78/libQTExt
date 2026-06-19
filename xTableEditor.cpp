@@ -11,6 +11,7 @@
 #include "xTableEditor.h"
 #include <QHBoxLayout>
 #include <QLineEdit>
+#include <QPalette>
 #include <QPointer>
 #include <QSizePolicy>
 #include <QToolButton>
@@ -57,13 +58,27 @@ xTableStringListEditor::xTableStringListEditor(
     setObjectName(QStringLiteral("xTableStringListEditor"));
     setProperty("xTableStringListEditor", true);
     setAutoFillBackground(true);
+    const bool darkMode = palette().color(QPalette::Base).lightness() < 128 ||
+                          palette().color(QPalette::Window).lightness() < 128;
+    const QString background = darkMode ? QStringLiteral("#1e1e1e") : QStringLiteral("white");
+    const QString textColor = darkMode ? QStringLiteral("#f0f0f0") : QStringLiteral("#111111");
+    const QString buttonBackground =
+        darkMode ? QStringLiteral("#2d2d30") : QStringLiteral("#F7F8FA");
+    const QString buttonText = darkMode ? QStringLiteral("#f0f0f0") : QStringLiteral("#4B5563");
+    const QString buttonBorder = darkMode ? QStringLiteral("#4a4a4a") : QStringLiteral("#C9CDD4");
     setStyleSheet(QStringLiteral(
         "QWidget#xTableStringListEditor {"
-        "background: white;"
+        "background: %1;"
         "border: none;"
         "margin: 0px;"
         "padding: 0px;"
-        "}"));
+        "}"
+        "QLineEdit {"
+        "background: %1;"
+        "color: %2;"
+        "selection-background-color: #007acc;"
+        "selection-color: white;"
+        "}").arg(background, textColor));
 
     line_edit_ = new QLineEdit(this);
     line_edit_->setProperty("xTableStringListEditor.childLineEdit", true);
@@ -83,23 +98,27 @@ xTableStringListEditor::xTableStringListEditor(
 
     button_->setStyleSheet(QStringLiteral(
         "QToolButton {"
-        "background: #F7F8FA;"
-        "color: #4B5563;"
-        "border: 1px solid #C9CDD4;"
-        "border-left-color: #DDE1E7;"
+        "background: %1;"
+        "color: %2;"
+        "border: 1px solid %3;"
+        "border-left-color: %3;"
         "border-radius: 0px;"
         "padding: 0px;"
         "font-weight: 600;"
         "}"
         "QToolButton:hover {"
-        "background: #EEF3FF;"
+        "background: %4;"
         "border-color: #8CA8E8;"
-        "color: #1F3F8B;"
+        "color: %2;"
         "}"
         "QToolButton:pressed {"
-        "background: #DDE7FF;"
+        "background: %5;"
         "border-color: #6F8FD8;"
-        "}"));
+        "}").arg(buttonBackground,
+                 buttonText,
+                 buttonBorder,
+                 darkMode ? QStringLiteral("#3a3a3d") : QStringLiteral("#EEF3FF"),
+                 darkMode ? QStringLiteral("#454549") : QStringLiteral("#DDE7FF")));
 
     auto* layout = new QHBoxLayout(this);
     // 3. 边距设置为0，让编辑器能完全填满单元格，看起来更原生
