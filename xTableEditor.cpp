@@ -11,6 +11,7 @@
 #include "xTableEditor.h"
 #include <QHBoxLayout>
 #include <QLineEdit>
+#include <QPalette>
 #include <QPointer>
 #include <QSizePolicy>
 #include <QToolButton>
@@ -57,13 +58,6 @@ xTableStringListEditor::xTableStringListEditor(
     setObjectName(QStringLiteral("xTableStringListEditor"));
     setProperty("xTableStringListEditor", true);
     setAutoFillBackground(true);
-    setStyleSheet(QStringLiteral(
-        "QWidget#xTableStringListEditor {"
-        "background: white;"
-        "border: none;"
-        "margin: 0px;"
-        "padding: 0px;"
-        "}"));
 
     line_edit_ = new QLineEdit(this);
     line_edit_->setProperty("xTableStringListEditor.childLineEdit", true);
@@ -80,26 +74,7 @@ xTableStringListEditor::xTableStringListEditor(
     button_->setCursor(Qt::ArrowCursor);
     // 保持焦点在 line edit，避免按钮按下/释放触发 editingFinished。
     button_->setFocusPolicy(Qt::NoFocus);
-
-    button_->setStyleSheet(QStringLiteral(
-        "QToolButton {"
-        "background: #F7F8FA;"
-        "color: #4B5563;"
-        "border: 1px solid #C9CDD4;"
-        "border-left-color: #DDE1E7;"
-        "border-radius: 0px;"
-        "padding: 0px;"
-        "font-weight: 600;"
-        "}"
-        "QToolButton:hover {"
-        "background: #EEF3FF;"
-        "border-color: #8CA8E8;"
-        "color: #1F3F8B;"
-        "}"
-        "QToolButton:pressed {"
-        "background: #DDE7FF;"
-        "border-color: #6F8FD8;"
-        "}"));
+    applyTheme(palette());
 
     auto* layout = new QHBoxLayout(this);
     // 3. 边距设置为0，让编辑器能完全填满单元格，看起来更原生
@@ -141,6 +116,60 @@ void xTableStringListEditor::setText(const QString& text) {
 
 QStringList xTableStringListEditor::getStringList() const {
     return current_list_;
+}
+
+void xTableStringListEditor::applyTheme(const QPalette& palette) {
+    setPalette(palette);
+    if (line_edit_) {
+        line_edit_->setPalette(palette);
+    }
+    if (button_) {
+        button_->setPalette(palette);
+    }
+
+    const xEditorTheme theme = editorThemeFromPalette(palette);
+    setStyleSheet(QStringLiteral(
+        "QWidget#xTableStringListEditor {"
+        "background: %1;"
+        "border: none;"
+        "margin: 0px;"
+        "padding: 0px;"
+        "}"
+        "QLineEdit {"
+        "background: %1;"
+        "color: %2;"
+        "selection-background-color: %3;"
+        "selection-color: %4;"
+        "}").arg(theme.background,
+                 theme.textColor,
+                 theme.selectionBackground,
+                 theme.selectionText));
+
+    button_->setStyleSheet(QStringLiteral(
+        "QToolButton {"
+        "background: %1;"
+        "color: %2;"
+        "border: 1px solid %3;"
+        "border-left-color: %3;"
+        "border-radius: 0px;"
+        "padding: 0px;"
+        "font-weight: 600;"
+        "}"
+        "QToolButton:hover {"
+        "background: %4;"
+        "border-color: %5;"
+        "color: %2;"
+        "}"
+        "QToolButton:pressed {"
+        "background: %6;"
+        "border-color: %7;"
+        "}").arg(theme.buttonBackground,
+                 theme.buttonText,
+                 theme.buttonBorder,
+                 theme.buttonHoverBackground,
+                 theme.buttonHoverBorder,
+                 theme.buttonPressedBackground,
+                 theme.buttonPressedBorder));
 }
 
 void xTableStringListEditor::onTextEdited(const QString& text) {

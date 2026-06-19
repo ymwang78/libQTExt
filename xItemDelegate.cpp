@@ -133,24 +133,33 @@ static void polishLineEditEditor(QLineEdit *editor, const QStyleOptionViewItem *
         editor->setFont(editorFont);
         editor->setPalette(option->palette);
     }
+    const QPalette palette = option ? option->palette : QApplication::palette();
+    const xEditorTheme theme = editorThemeFromPalette(palette);
     const QString styleSheet =
         QStringLiteral(
             "QLineEdit {"
-            "background: white;"
+            "background: %1;"
+            "color: %2;"
             "border: none;"
             "margin: 0px;"
             "padding: 0px;"
-            "%1"
-            "%2"
-            "selection-background-color: #1344B1;"
-            "selection-color: white;"
+            "%3"
+            "%4"
+            "selection-background-color: %5;"
+            "selection-color: %6;"
             "}"
             "QLineEdit:focus {"
-            "background: white;"
+            "background: %1;"
+            "color: %2;"
             "border: none;"
             "outline: none;"
             "}")
-            .arg(fontSizeRule, heightRule);
+            .arg(theme.background,
+                 theme.textColor,
+                 fontSizeRule,
+                 heightRule,
+                 theme.selectionBackground,
+                 theme.selectionText);
     if (editor->styleSheet() != styleSheet) {
         editor->setStyleSheet(styleSheet);
     }
@@ -401,6 +410,10 @@ void xItemDelegate::updateEditorGeometry(QWidget *editor, const QStyleOptionView
     if (auto *layout = editor->layout()) {
         layout->setContentsMargins(0, 0, 0, 0);
         layout->setSpacing(0);
+    }
+
+    if (auto *stringListEditor = qobject_cast<xTableStringListEditor *>(editor)) {
+        stringListEditor->applyTheme(option.palette);
     }
 
     if (auto *lineEdit = editorLineEdit(editor)) {
