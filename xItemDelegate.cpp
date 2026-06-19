@@ -134,12 +134,7 @@ static void polishLineEditEditor(QLineEdit *editor, const QStyleOptionViewItem *
         editor->setPalette(option->palette);
     }
     const QPalette palette = option ? option->palette : QApplication::palette();
-    const bool darkMode = palette.color(QPalette::Base).lightness() < 128 ||
-                          palette.color(QPalette::Window).lightness() < 128;
-    const QString background = darkMode ? QStringLiteral("#1e1e1e") : QStringLiteral("white");
-    const QString textColor = darkMode ? QStringLiteral("#f0f0f0") : QStringLiteral("#111111");
-    const QString selectionBackground =
-        darkMode ? QStringLiteral("#007acc") : QStringLiteral("#1344B1");
+    const xEditorTheme theme = editorThemeFromPalette(palette);
     const QString styleSheet =
         QStringLiteral(
             "QLineEdit {"
@@ -151,7 +146,7 @@ static void polishLineEditEditor(QLineEdit *editor, const QStyleOptionViewItem *
             "%3"
             "%4"
             "selection-background-color: %5;"
-            "selection-color: white;"
+            "selection-color: %6;"
             "}"
             "QLineEdit:focus {"
             "background: %1;"
@@ -159,7 +154,12 @@ static void polishLineEditEditor(QLineEdit *editor, const QStyleOptionViewItem *
             "border: none;"
             "outline: none;"
             "}")
-            .arg(background, textColor, fontSizeRule, heightRule, selectionBackground);
+            .arg(theme.background,
+                 theme.textColor,
+                 fontSizeRule,
+                 heightRule,
+                 theme.selectionBackground,
+                 theme.selectionText);
     if (editor->styleSheet() != styleSheet) {
         editor->setStyleSheet(styleSheet);
     }
@@ -410,6 +410,10 @@ void xItemDelegate::updateEditorGeometry(QWidget *editor, const QStyleOptionView
     if (auto *layout = editor->layout()) {
         layout->setContentsMargins(0, 0, 0, 0);
         layout->setSpacing(0);
+    }
+
+    if (auto *stringListEditor = qobject_cast<xTableStringListEditor *>(editor)) {
+        stringListEditor->applyTheme(option.palette);
     }
 
     if (auto *lineEdit = editorLineEdit(editor)) {
