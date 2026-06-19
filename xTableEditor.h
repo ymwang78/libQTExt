@@ -40,11 +40,10 @@ inline xEditorTheme editorThemeFromPalette(const QPalette& palette) {
                           palette.color(QPalette::Window).lightness() < 128;
     xEditorTheme theme;
     theme.darkMode = darkMode;
-    theme.background = darkMode ? QStringLiteral("#1e1e1e") : QStringLiteral("white");
-    theme.textColor = darkMode ? QStringLiteral("#f0f0f0") : QStringLiteral("#111111");
-    theme.selectionBackground =
-        darkMode ? QStringLiteral("#007acc") : QStringLiteral("#1344B1");
-    theme.selectionText = QStringLiteral("white");
+    theme.background = palette.color(QPalette::Base).name();
+    theme.textColor = palette.color(QPalette::Text).name();
+    theme.selectionBackground = palette.color(QPalette::Highlight).name();
+    theme.selectionText = palette.color(QPalette::HighlightedText).name();
     theme.buttonBackground =
         darkMode ? QStringLiteral("#2d2d30") : QStringLiteral("#F7F8FA");
     theme.buttonText = darkMode ? QStringLiteral("#f0f0f0") : QStringLiteral("#4B5563");
