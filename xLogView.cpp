@@ -460,6 +460,7 @@ void xLogView::onLevelFilterChanged() {
 }
 
 int xLogView::currentLevel() const {
+    // 未初始化时返回 ZLOG_TRACE，等同于「ALL」（显示全部级别）。
     if (!m_levelFilter) return static_cast<int>(ZLOG_TRACE);
     return m_levelFilter->currentData().toInt();
 }
@@ -467,13 +468,18 @@ int xLogView::currentLevel() const {
 void xLogView::setLevel(int level) {
     if (!m_levelFilter) return;
     int index = m_levelFilter->findData(level);
-    if (index < 0) return;
+    if (index < 0) {
+        // 非法 level（不在下拉项中）静默忽略，但给出告警便于排查配置错误。
+        qWarning() << "xLogView::setLevel: ignoring unknown log level" << level;
+        return;
+    }
     if (index == m_levelFilter->currentIndex()) return;
-    // 抑制 logLevelChanged，避免初值同步反向触发 RPC
+    // 抑制 logLevelChanged，避免初值同步反向触发 RPC。
+    // setCurrentIndex 会同步触发 onLevelFilterChanged()，其中已调用 applyFilter()，
+    // 故此处无需再次调用。
     m_suppressLevelSignal = true;
     m_levelFilter->setCurrentIndex(index);
     m_suppressLevelSignal = false;
-    applyFilter();
 }
 
 void xLogView::onClearLog() {
