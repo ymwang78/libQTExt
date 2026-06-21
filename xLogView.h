@@ -100,8 +100,18 @@ class xLogView : public QWidget {
     void appendLog(ZLOG_LEVEL level, const QString& logText);
     void clear();
 
+    // 当前等级过滤门限（ZLOG_LEVEL 数值，低于该值的日志被隐藏）
+    int currentLevel() const;
+    // 以编程方式设置等级过滤门限，不会触发 logLevelChanged（用于从工程配置同步初值）
+    void setLevel(int level);
+
+  signals:
+    // 用户在界面上修改等级过滤门限时发出（编程调用 setLevel 不触发）
+    void logLevelChanged(int level);
+
   private slots:
     void onUpdateTimer();  // 定时器槽函数
+    void onLevelFilterChanged();  // 用户切换等级下拉框
     void applyFilter();
     void onClearLog();
     void setAutoScroll(bool enabled);
@@ -134,4 +144,7 @@ class xLogView : public QWidget {
 
     // 自动滚动状态：true = 当前应自动滚动（滚动条在底部）
     bool m_autoScrollEnabled = true;
+
+    // 为 true 时抑制 logLevelChanged（区分 setLevel 的编程调用与用户操作）
+    bool m_suppressLevelSignal = false;
 };
