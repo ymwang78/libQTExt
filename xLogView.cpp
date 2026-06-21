@@ -294,7 +294,7 @@ void xLogView::setupUI() {
 
     // 连接信号
     connect(m_levelFilter, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
-            &xLogView::applyFilter);
+            &xLogView::onLevelFilterChanged);
     connect(m_searchBox, &QLineEdit::textChanged, this, &xLogView::applyFilter);
     connect(m_clearButton, &QPushButton::clicked, this, &xLogView::onClearLog);
     connect(m_autoScroll, &QCheckBox::toggled, this, &xLogView::setAutoScroll);
@@ -449,6 +449,37 @@ void xLogView::applyFilter() {
     int levelIdx = m_levelFilter->currentData().toInt();
     m_proxyModel->setMinLevel(levelIdx);
     m_proxyModel->setSearchText(m_searchBox->text());
+}
+
+void xLogView::onLevelFilterChanged() {
+    applyFilter();
+    // 仅在用户主动切换时上报，setLevel 的编程调用通过标志位抑制
+    if (!m_suppressLevelSignal) {
+        emit logLevelChanged(currentLevel());
+    }
+}
+
+int xLogView::currentLevel() const {
+    // 未初始化时返回 ZLOG_TRACE，等同于「ALL」（显示全部级别）。
+    if (!m_levelFilter) return static_cast<int>(ZLOG_TRACE);
+    return m_levelFilter->currentData().toInt();
+}
+
+void xLogView::setLevel(int level) {
+    if (!m_levelFilter) return;
+    int index = m_levelFilter->findData(level);
+    if (index < 0) {
+        // 非法 level（不在下拉项中）静默忽略，但给出告警便于排查配置错误。
+        qWarning() << "xLogView::setLevel: ignoring unknown log level" << level;
+        return;
+    }
+    if (index == m_levelFilter->currentIndex()) return;
+    // 抑制 logLevelChanged，避免初值同步反向触发 RPC。
+    // setCurrentIndex 会同步触发 onLevelFilterChanged()，其中已调用 applyFilter()，
+    // 故此处无需再次调用。
+    m_suppressLevelSignal = true;
+    m_levelFilter->setCurrentIndex(index);
+    m_suppressLevelSignal = false;
 }
 
 void xLogView::onClearLog() {
