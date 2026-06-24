@@ -839,6 +839,7 @@ void xTableView::createFrozenColView() {
     frozen_col_view_->setModel(model());
     frozen_col_view_->setItemDelegate(itemDelegate());
     frozen_col_view_->setFocusPolicy(Qt::NoFocus);
+    frozen_col_view_->horizontalHeader()->hide();
     frozen_col_view_->verticalHeader()->hide();
     frozen_col_view_->horizontalHeader()->setSectionResizeMode(QHeaderView::Fixed);
     frozen_col_view_->setSelectionModel(selectionModel());
