@@ -836,6 +836,7 @@ void xTableView::syncFrozen() {
 
 void xTableView::createFrozenColView() {
     frozen_col_view_ = new QTableView(this);
+    frozen_col_view_->setFrameShape(QFrame::NoFrame);
     frozen_col_view_->setModel(model());
     frozen_col_view_->setItemDelegate(itemDelegate());
     frozen_col_view_->setFocusPolicy(Qt::NoFocus);
