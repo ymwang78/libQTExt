@@ -839,9 +839,11 @@ void xTableView::createFrozenColView() {
     frozen_col_view_->setModel(model());
     frozen_col_view_->setItemDelegate(itemDelegate());
     frozen_col_view_->setFocusPolicy(Qt::NoFocus);
-    frozen_col_view_->horizontalHeader()->hide();
     frozen_col_view_->verticalHeader()->hide();
     frozen_col_view_->horizontalHeader()->setSectionResizeMode(QHeaderView::Fixed);
+    frozen_col_view_->verticalHeader()->setDefaultSectionSize(
+        verticalHeader()->defaultSectionSize());
+    frozen_col_view_->verticalHeader()->setSectionResizeMode(QHeaderView::Fixed);
     frozen_col_view_->setSelectionModel(selectionModel());
     frozen_col_view_->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     frozen_col_view_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
@@ -849,6 +851,19 @@ void xTableView::createFrozenColView() {
             frozen_col_view_->verticalScrollBar(), &QAbstractSlider::setValue);
     connect(frozen_col_view_->verticalScrollBar(), &QAbstractSlider::valueChanged,
             verticalScrollBar(), &QAbstractSlider::setValue);
+    connect(verticalHeader(), &QHeaderView::sectionResized, this,
+            [this](int logicalIndex, int, int newSize) {
+                if (frozen_col_view_) {
+                    frozen_col_view_->setRowHeight(logicalIndex, newSize);
+                }
+            });
+    connect(horizontalHeader(), &QHeaderView::sectionResized, this,
+            [this](int logicalIndex, int, int newSize) {
+                if (frozen_col_view_ && logicalIndex < freeze_cols_) {
+                    frozen_col_view_->setColumnWidth(logicalIndex, newSize);
+                    updateFrozenGeometry();
+                }
+            });
     frozen_col_view_->show();
 }
 
@@ -888,12 +903,14 @@ void xTableView::updateFrozenGeometry() {
         int w = 0;
         for (int c = 0; c < freeze_cols_; ++c) {
             if (!isColumnHidden(c)) {
+                frozen_col_view_->setColumnWidth(c, columnWidth(c));
                 w += columnWidth(c);
             }
         }
         frozen_col_view_->setGeometry(verticalHeader()->width() + frameWidth(),
-                                      frameWidth() + horizontalHeader()->height(), w,
-                                      viewport()->height());
+                                      frameWidth(), w,
+                                      horizontalHeader()->height() + viewport()->height());
+        frozen_col_view_->raise();
     }
     if (frozen_row_view_) {
         int h = 0;
