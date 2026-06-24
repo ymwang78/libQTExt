@@ -836,7 +836,7 @@ void xTableView::syncFrozen() {
 
 void xTableView::createFrozenColView() {
     frozen_col_view_ = new QTableView(this);
-    frozen_col_view_->setModel(proxy_);
+    frozen_col_view_->setModel(model());
     frozen_col_view_->setItemDelegate(itemDelegate());
     frozen_col_view_->setFocusPolicy(Qt::NoFocus);
     frozen_col_view_->verticalHeader()->hide();
@@ -853,7 +853,7 @@ void xTableView::createFrozenColView() {
 
 void xTableView::createFrozenRowView() {
     frozen_row_filter_ = new xTableViewTopRowsFilter(this);
-    frozen_row_filter_->setSourceModel(proxy_);
+    frozen_row_filter_->setSourceModel(model());
     frozen_row_view_ = new QTableView(this);
     frozen_row_view_->setModel(frozen_row_filter_);
     frozen_row_view_->setItemDelegate(itemDelegate());
