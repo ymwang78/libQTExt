@@ -398,7 +398,7 @@ xPaletteChangeWatcher::~xPaletteChangeWatcher() {
 }
 
 bool xPaletteChangeWatcher::eventFilter(QObject *obj, QEvent *event) {
-    if (event->type() == QEvent::ApplicationPaletteChange && obj == m_target && m_target) {
+    if (event->type() == QEvent::ApplicationPaletteChange && m_target) {
         bool darkModeNow = qApp->palette().color(QPalette::Window).lightness() < 128;
         if (darkModeNow == m_lastDarkMode) {
             return QObject::eventFilter(obj, event);
