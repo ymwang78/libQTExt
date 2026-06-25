@@ -394,11 +394,13 @@ xPaletteChangeWatcher::xPaletteChangeWatcher(xTableView *target)
       m_lastDarkMode(qApp && qApp->palette().color(QPalette::Window).lightness() < 128) {}
 
 xPaletteChangeWatcher::~xPaletteChangeWatcher() {
-    if (qApp) qApp->removeEventFilter(this);
+    if (m_target) m_target->removeEventFilter(this);
 }
 
 bool xPaletteChangeWatcher::eventFilter(QObject *obj, QEvent *event) {
-    if (event->type() == QEvent::ApplicationPaletteChange && m_target) {
+    const bool isPaletteChange = event->type() == QEvent::PaletteChange ||
+                                 event->type() == QEvent::ApplicationPaletteChange;
+    if (m_target && obj == m_target && isPaletteChange) {
         bool darkModeNow = qApp->palette().color(QPalette::Window).lightness() < 128;
         if (darkModeNow == m_lastDarkMode) {
             return QObject::eventFilter(obj, event);
@@ -417,7 +419,7 @@ static void setupAdaptiveTableStyle(xTableView *table) {
 
     // 安装事件过滤器监听系统调色板变化
     xPaletteChangeWatcher *watcher = new xPaletteChangeWatcher(table);
-    qApp->installEventFilter(watcher);
+    table->installEventFilter(watcher);
 }
 
 xTableView::xTableView(QWidget *parent, bool is_column_sortable)
