@@ -89,6 +89,7 @@ class xPaletteChangeWatcher : public QObject {
 
   private:
     xTableView *m_target = nullptr;
+    bool m_lastDarkMode = false;
 };
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 

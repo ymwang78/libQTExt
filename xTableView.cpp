@@ -388,17 +388,23 @@ static void applyTableTheme(QTableView *table, bool darkMode) {
     table->viewport()->update();
 }
 
-xPaletteChangeWatcher::xPaletteChangeWatcher(xTableView *target) : QObject(target), m_target(target) {}
+xPaletteChangeWatcher::xPaletteChangeWatcher(xTableView *target)
+    : QObject(target),
+      m_target(target),
+      m_lastDarkMode(qApp && qApp->palette().color(QPalette::Window).lightness() < 128) {}
 
 xPaletteChangeWatcher::~xPaletteChangeWatcher() {
     if (qApp) qApp->removeEventFilter(this);
 }
 
 bool xPaletteChangeWatcher::eventFilter(QObject *obj, QEvent *event) {
-    if (event->type() == QEvent::ApplicationPaletteChange && m_target) {
+    if (event->type() == QEvent::ApplicationPaletteChange && obj == m_target && m_target) {
         bool darkModeNow = qApp->palette().color(QPalette::Window).lightness() < 128;
+        if (darkModeNow == m_lastDarkMode) {
+            return QObject::eventFilter(obj, event);
+        }
+        m_lastDarkMode = darkModeNow;
         applyTableTheme(m_target, darkModeNow);
-        qDebug() << "System palette changed:" << (darkModeNow ? "Dark" : "Light");
     }
     return QObject::eventFilter(obj, event);
 }
