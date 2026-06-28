@@ -35,7 +35,6 @@
 #include <QStyleOptionButton>
 #include <QJsonArray>
 #include <QJsonObject>
-#include <QSignalBlocker>
 #include <QTimer>
 #include <algorithm>
 
@@ -471,6 +470,12 @@ static bool isValidNumberDisplayMode(int mode) {
     return mode >= xTableView::MODE_GENERAL && mode <= xTableView::MODE_SCIENTIFIC;
 }
 
+static Qt::SortOrder jsonToSortOrder(const QJsonValue &value) {
+    const int order = value.toInt(static_cast<int>(Qt::AscendingOrder));
+    return order == static_cast<int>(Qt::DescendingOrder) ? Qt::DescendingOrder
+                                                          : Qt::AscendingOrder;
+}
+
 xTableView::xTableView(QWidget *parent, bool is_column_sortable)
     : QTableView(parent),
       proxy_(is_column_sortable ? new xTableViewSortFilter(this) : nullptr),
@@ -676,7 +681,6 @@ void xTableView::restoreUiState(const QJsonObject &state) {
         const int precision = state.value("numberDisplayPrecision").toInt(
             getNumberDisplayPrecision());
         if (isValidNumberDisplayMode(mode)) {
-            QSignalBlocker blocker(this);
             setNumberDisplayMode(static_cast<NUMBER_DISPLAY_MODE>(mode), precision);
         }
     }
@@ -766,8 +770,7 @@ void xTableView::restoreUiState(const QJsonObject &state) {
     const int headerColumnCount = horizontalHeader() ? horizontalHeader()->count() : 0;
     if (state.contains("sortColumn")) {
         const int sortColumn = state.value("sortColumn").toInt(-1);
-        const auto sortOrder = static_cast<Qt::SortOrder>(
-            state.value("sortOrder").toInt(static_cast<int>(Qt::AscendingOrder)));
+        const Qt::SortOrder sortOrder = jsonToSortOrder(state.value("sortOrder"));
         if (sortColumn >= 0 && sortColumn < headerColumnCount) {
             sortBy(sortColumn, sortOrder);
         } else {
