@@ -1,4 +1,4 @@
-// ***************************************************************
+﻿// ***************************************************************
 //  xTableView   version:  1.4   -   date:  2025/07/04
 //  -------------------------------------------------------------
 //  Yongming Wang(wangym@gmail.com)
@@ -35,6 +35,8 @@
 #include <QStyleOptionButton>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QSignalBlocker>
+#include <QTimer>
 #include <algorithm>
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -465,6 +467,10 @@ static bool restoreHeaderStateFromString(QHeaderView *header, const QJsonValue &
     return header->restoreState(state);
 }
 
+static bool isValidNumberDisplayMode(int mode) {
+    return mode >= xTableView::MODE_GENERAL && mode <= xTableView::MODE_SCIENTIFIC;
+}
+
 xTableView::xTableView(QWidget *parent, bool is_column_sortable)
     : QTableView(parent),
       proxy_(is_column_sortable ? new xTableViewSortFilter(this) : nullptr),
@@ -565,6 +571,7 @@ void xTableView::setStretchToFill(bool enabled) {
 void xTableView::setColumnWidthRatios(const QList<int> &ratios) {
     column_width_ratios_ = ratios;
     setStretchToFill(false);
+    applyColumnWidthRatios();
 }
 
 void xTableView::setSourceModel(QAbstractItemModel *m) {
@@ -656,28 +663,22 @@ QJsonObject xTableView::saveUiState() const {
     state["horizontalScrollValue"] = horizontalScrollBar()->value();
     state["verticalScrollValue"] = verticalScrollBar()->value();
 
-    QJsonArray columns;
-    const int columnCount = horizontalHeader() ? horizontalHeader()->count() : 0;
-    for (int col = 0; col < columnCount; ++col) {
-        QJsonObject column;
-        column["logicalIndex"] = col;
-        column["visualIndex"] = horizontalHeader()->visualIndex(col);
-        column["width"] = columnWidth(col);
-        column["hidden"] = isColumnHidden(col);
-        columns.append(column);
-    }
-    state["columns"] = columns;
-
     return state;
 }
 
 void xTableView::restoreUiState(const QJsonObject &state) {
+    const int version = state.value("version").toInt(1);
+    if (version > 1) return;
+
     if (state.contains("numberDisplayMode") || state.contains("numberDisplayPrecision")) {
         const int mode = state.value("numberDisplayMode").toInt(
             static_cast<int>(getNumberDisplayMode()));
         const int precision = state.value("numberDisplayPrecision").toInt(
             getNumberDisplayPrecision());
-        setNumberDisplayMode(static_cast<NUMBER_DISPLAY_MODE>(mode), precision);
+        if (isValidNumberDisplayMode(mode)) {
+            QSignalBlocker blocker(this);
+            setNumberDisplayMode(static_cast<NUMBER_DISPLAY_MODE>(mode), precision);
+        }
     }
 
     if (state.contains("boolColumns")) {
@@ -697,17 +698,21 @@ void xTableView::restoreUiState(const QJsonObject &state) {
         QList<int> sortedBoolColumns = restoredBoolColumns.values();
         std::sort(sortedBoolColumns.begin(), sortedBoolColumns.end());
         for (int col : sortedBoolColumns) {
-            setBoolColumn(col, true);
+            if (!oldBoolColumns.contains(col)) {
+                setBoolColumn(col, true);
+            }
         }
     }
 
+    const bool hasColumnWidthRatios = state.contains("columnWidthRatios");
+    const bool hasHorizontalHeader = horizontalHeader() != nullptr;
     if (state.contains("columnWidthRatios")) {
         column_width_ratios_ = jsonArrayToIntList(state.value("columnWidthRatios"));
     }
 
-    if (state.contains("horizontalHeaderState")) {
+    if (hasHorizontalHeader && state.contains("horizontalHeaderState")) {
         restoreHeaderStateFromString(horizontalHeader(), state.value("horizontalHeaderState"));
-    } else if (state.value("columns").isArray()) {
+    } else if (hasHorizontalHeader && state.value("columns").isArray()) {
         const QJsonArray columns = state.value("columns").toArray();
         for (const QJsonValue &value : columns) {
             const QJsonObject column = value.toObject();
@@ -745,33 +750,68 @@ void xTableView::restoreUiState(const QJsonObject &state) {
 
     if (state.contains("stretchToFill")) {
         setStretchToFill(state.value("stretchToFill").toBool(false));
-    } else if (!column_width_ratios_.isEmpty()) {
+    } else if (hasColumnWidthRatios && !column_width_ratios_.isEmpty()) {
         setStretchToFill(false);
     }
 
-    freezeLeftColumns(state.value("freezeColumns").toInt(freeze_cols_));
-    freezeTopRows(state.value("freezeRows").toInt(freeze_rows_));
+    if (hasColumnWidthRatios) applyColumnWidthRatios();
 
-    const int sortColumn = state.value("sortColumn").toInt(current_sort_col_);
-    if (sortColumn >= 0 && sortColumn < horizontalHeader()->count()) {
+    if (state.contains("freezeColumns")) {
+        freezeLeftColumns(state.value("freezeColumns").toInt());
+    }
+    if (state.contains("freezeRows")) {
+        freezeTopRows(state.value("freezeRows").toInt());
+    }
+
+    const int headerColumnCount = horizontalHeader() ? horizontalHeader()->count() : 0;
+    if (state.contains("sortColumn")) {
+        const int sortColumn = state.value("sortColumn").toInt(-1);
         const auto sortOrder = static_cast<Qt::SortOrder>(
             state.value("sortOrder").toInt(static_cast<int>(Qt::AscendingOrder)));
-        sortBy(sortColumn, sortOrder);
-    } else if (state.contains("sortColumn") && sortColumn < 0) {
-        current_sort_col_ = -1;
-        current_sort_order_ = Qt::AscendingOrder;
-        if (proxy_) {
-            proxy_->sort(-1);
+        if (sortColumn >= 0 && sortColumn < headerColumnCount) {
+            sortBy(sortColumn, sortOrder);
+        } else {
+            sortBy(-1, Qt::AscendingOrder);
         }
-        horizontalHeader()->setSortIndicatorShown(false);
-        horizontalHeader()->setSortIndicator(-1, Qt::AscendingOrder);
     }
 
-    if (state.contains("horizontalScrollValue")) {
-        horizontalScrollBar()->setValue(state.value("horizontalScrollValue").toInt());
+    const int horizontalScrollValue = state.value("horizontalScrollValue").toInt(
+        horizontalScrollBar()->value());
+    const int verticalScrollValue = state.value("verticalScrollValue").toInt(
+        verticalScrollBar()->value());
+    const bool restoreHorizontalScroll = state.contains("horizontalScrollValue");
+    const bool restoreVerticalScroll = state.contains("verticalScrollValue");
+    QTimer::singleShot(0, this, [this, horizontalScrollValue, verticalScrollValue,
+                                restoreHorizontalScroll, restoreVerticalScroll]() {
+        if (restoreHorizontalScroll) {
+            horizontalScrollBar()->setValue(horizontalScrollValue);
+        }
+        if (restoreVerticalScroll) {
+            verticalScrollBar()->setValue(verticalScrollValue);
+        }
+        updateFrozenGeometry();
+    });
+
+    updateFrozenGeometry();
+}
+
+void xTableView::applyColumnWidthRatios() {
+    if (is_stretch_to_fill_ || column_width_ratios_.isEmpty()) return;
+
+    const int totalWidth = viewport()->width();
+    if (totalWidth <= 0) return;
+
+    int totalRatio = 0;
+    for (int ratio : column_width_ratios_) {
+        totalRatio += ratio;
     }
-    if (state.contains("verticalScrollValue")) {
-        verticalScrollBar()->setValue(state.value("verticalScrollValue").toInt());
+    if (totalRatio == 0) return;
+
+    for (int i = 0; i < column_width_ratios_.size(); ++i) {
+        if (model() && i < model()->columnCount()) {
+            const int columnWidth = (totalWidth * column_width_ratios_[i]) / totalRatio;
+            setColumnWidth(i, columnWidth);
+        }
     }
 
     updateFrozenGeometry();
@@ -785,10 +825,26 @@ void xTableView::clearFilters() { proxy_->clearFilters(); }
 
 void xTableView::sortBy(int col, Qt::SortOrder ord) {
     current_sort_col_ = col;
-    current_sort_order_ = ord;
-    horizontalHeader()->setSortIndicatorShown(col >= 0);
-    sortByColumn(col, ord);
-    horizontalHeader()->setSortIndicator(col, ord);
+    current_sort_order_ = col >= 0 ? ord : Qt::AscendingOrder;
+
+    if (col >= 0) {
+        if (horizontalHeader()) {
+            horizontalHeader()->setSortIndicatorShown(true);
+        }
+        sortByColumn(col, ord);
+        if (horizontalHeader()) {
+            horizontalHeader()->setSortIndicator(col, ord);
+        }
+        return;
+    }
+
+    if (proxy_) {
+        proxy_->sort(-1);
+    }
+    if (horizontalHeader()) {
+        horizontalHeader()->setSortIndicatorShown(false);
+        horizontalHeader()->setSortIndicator(-1, Qt::AscendingOrder);
+    }
 }
 
 void xTableView::freezeLeftColumns(int n) {
@@ -845,24 +901,7 @@ void xTableView::mousePressEvent(QMouseEvent *event) {
 
 void xTableView::resizeEvent(QResizeEvent *e) {
     if (!is_stretch_to_fill_ && !column_width_ratios_.isEmpty()) {
-        if (column_width_ratios_.isEmpty()) return;
-
-        int totalWidth = viewport()->width();
-        int totalRatio = 0;
-        for (int ratio : column_width_ratios_) {
-            totalRatio += ratio;
-        }
-
-        if (totalRatio == 0) return;
-
-        for (int i = 0; i < column_width_ratios_.size(); ++i) {
-            // 确保列存在
-            if (model() && i < model()->columnCount()) {
-                int columnWidth = (totalWidth * column_width_ratios_[i]) / totalRatio;
-                setColumnWidth(i, columnWidth);
-            }
-        }
-
+        applyColumnWidthRatios();
     } else {
         QTableView::resizeEvent(e);
     }
@@ -920,27 +959,14 @@ void xTableView::toggleSortColumn(int logicalCol) {
         // 第2次或第3次点击同一个已排序的列
         if (current_sort_order_ == Qt::AscendingOrder) {
             // 第2次点击：从升序变为降序
-            current_sort_order_ = Qt::DescendingOrder;
-            sortBy(current_sort_col_, current_sort_order_);
-            horizontalHeader()->setSortIndicator(current_sort_col_, current_sort_order_);
+            sortBy(current_sort_col_, Qt::DescendingOrder);
         } else {
             // 第3次点击：从降序变为“未排序”
-            current_sort_col_ = -1;  // 重置当前排序列
-            // 调用 sort(-1) 来禁用代理模型的排序，恢复源模型顺序
-            proxy_->sort(-1);
-            // 隐藏表头的排序箭头
-            horizontalHeader()->setSortIndicatorShown(false);
-            // 再次设置以确保旧的箭头完全消失
-            horizontalHeader()->setSortIndicator(-1, Qt::AscendingOrder);
+            sortBy(-1, Qt::AscendingOrder);
         }
     } else {
         // 第1次点击一个新的列：总是升序
-        current_sort_col_ = logicalCol;
-        current_sort_order_ = Qt::AscendingOrder;
-        // 确保排序箭头是可见的
-        horizontalHeader()->setSortIndicatorShown(true);
-        sortBy(current_sort_col_, current_sort_order_);
-        horizontalHeader()->setSortIndicator(current_sort_col_, current_sort_order_);
+        sortBy(logicalCol, Qt::AscendingOrder);
     }
 }
 

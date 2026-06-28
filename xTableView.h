@@ -200,6 +200,7 @@ class xTableView : public QTableView {
 
     QJsonObject saveUiState() const;
 
+    // Call after the model has been populated and the view has completed layout.
     void restoreUiState(const QJsonObject &state);
 
     // Public filtering / sorting helpers --------------------------------------------------
@@ -280,6 +281,8 @@ class xTableView : public QTableView {
     void createFrozenRowView();
 
     void updateFrozenGeometry();
+
+    void applyColumnWidthRatios();
 
     void updateBoolColumnHeaderState(int column);
 
