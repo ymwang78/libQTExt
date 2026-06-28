@@ -27,6 +27,7 @@
 #include <QVector>
 #include <QPaintEvent>
 #include <QMouseEvent>
+#include <QJsonObject>
 #include <optional>
 #include <zce/zce_any.h>
 
@@ -197,6 +198,10 @@ class xTableView : public QTableView {
 
     void setNumberDisplayMode(NUMBER_DISPLAY_MODE mode, int precision);
 
+    QJsonObject saveUiState() const;
+
+    void restoreUiState(const QJsonObject &state);
+
     // Public filtering / sorting helpers --------------------------------------------------
 
     void setColumnFilter(int col, const QVariantMap &cond);
@@ -234,6 +239,8 @@ class xTableView : public QTableView {
   signals:
 
     void findRequested();
+
+    void numberDisplayChanged(NUMBER_DISPLAY_MODE mode, int precision);
 
   protected:
     // keyboard shortcuts ---------------------------------------------------------------

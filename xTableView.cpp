@@ -33,6 +33,9 @@
 #include <QComboBox>
 #include <QTextCursor>
 #include <QStyleOptionButton>
+#include <QJsonArray>
+#include <QJsonObject>
+#include <algorithm>
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -422,6 +425,46 @@ static void setupAdaptiveTableStyle(xTableView *table) {
     table->installEventFilter(watcher);
 }
 
+static QJsonArray intListToJsonArray(const QList<int> &values) {
+    QJsonArray array;
+    for (int value : values) {
+        array.append(value);
+    }
+    return array;
+}
+
+static QJsonArray intSetToJsonArray(const QSet<int> &values) {
+    QList<int> sorted = values.values();
+    std::sort(sorted.begin(), sorted.end());
+    return intListToJsonArray(sorted);
+}
+
+static QList<int> jsonArrayToIntList(const QJsonValue &value) {
+    QList<int> values;
+    if (!value.isArray()) return values;
+
+    const QJsonArray array = value.toArray();
+    for (const QJsonValue &item : array) {
+        if (item.isDouble()) {
+            values.append(item.toInt());
+        }
+    }
+    return values;
+}
+
+static QString headerStateToString(const QHeaderView *header) {
+    if (!header) return {};
+    return QString::fromLatin1(header->saveState().toBase64());
+}
+
+static bool restoreHeaderStateFromString(QHeaderView *header, const QJsonValue &value) {
+    if (!header || !value.isString()) return false;
+
+    const QByteArray state = QByteArray::fromBase64(value.toString().toLatin1());
+    if (state.isEmpty()) return false;
+    return header->restoreState(state);
+}
+
 xTableView::xTableView(QWidget *parent, bool is_column_sortable)
     : QTableView(parent),
       proxy_(is_column_sortable ? new xTableViewSortFilter(this) : nullptr),
@@ -578,13 +621,160 @@ void xTableView::setNumberDisplayMode(NUMBER_DISPLAY_MODE mode, int precision) {
 
     // 2. 确保转换成功
     if (delegate) {
+        const bool changed = delegate->getRealNumberMode() != mode ||
+                             delegate->getRealNumberPrecision() != precision;
+
         // 3. 调用我们之前在委托中写好的方法，将模式和精度传递下去
         delegate->setRealNumberShowMode(mode, precision);
 
         // 4. 【关键】强制整个视图重绘。
         //    这会使所有可见单元格的 displayText() 方法被重新调用，从而应用新的数字格式。
         viewport()->update();
+
+        if (changed) {
+            emit numberDisplayChanged(mode, precision);
+        }
     }
+}
+
+QJsonObject xTableView::saveUiState() const {
+    QJsonObject state;
+    state["version"] = 1;
+
+    state["numberDisplayMode"] = static_cast<int>(getNumberDisplayMode());
+    state["numberDisplayPrecision"] = getNumberDisplayPrecision();
+    state["sortColumn"] = current_sort_col_;
+    state["sortOrder"] = static_cast<int>(current_sort_order_);
+    state["freezeColumns"] = freeze_cols_;
+    state["freezeRows"] = freeze_rows_;
+    state["stretchToFill"] = is_stretch_to_fill_;
+    state["columnWidthRatios"] = intListToJsonArray(column_width_ratios_);
+    state["boolColumns"] = intSetToJsonArray(bool_columns_);
+
+    state["horizontalHeaderState"] = headerStateToString(horizontalHeader());
+    state["verticalHeaderState"] = headerStateToString(verticalHeader());
+    state["horizontalScrollValue"] = horizontalScrollBar()->value();
+    state["verticalScrollValue"] = verticalScrollBar()->value();
+
+    QJsonArray columns;
+    const int columnCount = horizontalHeader() ? horizontalHeader()->count() : 0;
+    for (int col = 0; col < columnCount; ++col) {
+        QJsonObject column;
+        column["logicalIndex"] = col;
+        column["visualIndex"] = horizontalHeader()->visualIndex(col);
+        column["width"] = columnWidth(col);
+        column["hidden"] = isColumnHidden(col);
+        columns.append(column);
+    }
+    state["columns"] = columns;
+
+    return state;
+}
+
+void xTableView::restoreUiState(const QJsonObject &state) {
+    if (state.contains("numberDisplayMode") || state.contains("numberDisplayPrecision")) {
+        const int mode = state.value("numberDisplayMode").toInt(
+            static_cast<int>(getNumberDisplayMode()));
+        const int precision = state.value("numberDisplayPrecision").toInt(
+            getNumberDisplayPrecision());
+        setNumberDisplayMode(static_cast<NUMBER_DISPLAY_MODE>(mode), precision);
+    }
+
+    if (state.contains("boolColumns")) {
+        QSet<int> restoredBoolColumns;
+        for (int col : jsonArrayToIntList(state.value("boolColumns"))) {
+            if (col >= 0) {
+                restoredBoolColumns.insert(col);
+            }
+        }
+
+        const QSet<int> oldBoolColumns = bool_columns_;
+        for (int col : oldBoolColumns) {
+            if (!restoredBoolColumns.contains(col)) {
+                setBoolColumn(col, false);
+            }
+        }
+        QList<int> sortedBoolColumns = restoredBoolColumns.values();
+        std::sort(sortedBoolColumns.begin(), sortedBoolColumns.end());
+        for (int col : sortedBoolColumns) {
+            setBoolColumn(col, true);
+        }
+    }
+
+    if (state.contains("columnWidthRatios")) {
+        column_width_ratios_ = jsonArrayToIntList(state.value("columnWidthRatios"));
+    }
+
+    if (state.contains("horizontalHeaderState")) {
+        restoreHeaderStateFromString(horizontalHeader(), state.value("horizontalHeaderState"));
+    } else if (state.value("columns").isArray()) {
+        const QJsonArray columns = state.value("columns").toArray();
+        for (const QJsonValue &value : columns) {
+            const QJsonObject column = value.toObject();
+            const int logicalIndex = column.value("logicalIndex").toInt(-1);
+            if (logicalIndex < 0 || logicalIndex >= horizontalHeader()->count()) continue;
+
+            if (column.contains("width")) {
+                setColumnWidth(logicalIndex, column.value("width").toInt(columnWidth(logicalIndex)));
+            }
+            if (column.contains("hidden")) {
+                setColumnHidden(logicalIndex, column.value("hidden").toBool(false));
+            }
+        }
+
+        QList<QPair<int, int>> visualOrder;
+        for (const QJsonValue &value : columns) {
+            const QJsonObject column = value.toObject();
+            const int logicalIndex = column.value("logicalIndex").toInt(-1);
+            const int visualIndex = column.value("visualIndex").toInt(-1);
+            if (logicalIndex >= 0 && visualIndex >= 0 &&
+                logicalIndex < horizontalHeader()->count()) {
+                visualOrder.append(qMakePair(visualIndex, logicalIndex));
+            }
+        }
+        std::sort(visualOrder.begin(), visualOrder.end());
+        for (const auto &entry : visualOrder) {
+            const int currentVisualIndex = horizontalHeader()->visualIndex(entry.second);
+            if (currentVisualIndex >= 0 && currentVisualIndex != entry.first) {
+                horizontalHeader()->moveSection(currentVisualIndex, entry.first);
+            }
+        }
+    }
+
+    restoreHeaderStateFromString(verticalHeader(), state.value("verticalHeaderState"));
+
+    if (state.contains("stretchToFill")) {
+        setStretchToFill(state.value("stretchToFill").toBool(false));
+    } else if (!column_width_ratios_.isEmpty()) {
+        setStretchToFill(false);
+    }
+
+    freezeLeftColumns(state.value("freezeColumns").toInt(freeze_cols_));
+    freezeTopRows(state.value("freezeRows").toInt(freeze_rows_));
+
+    const int sortColumn = state.value("sortColumn").toInt(current_sort_col_);
+    if (sortColumn >= 0 && sortColumn < horizontalHeader()->count()) {
+        const auto sortOrder = static_cast<Qt::SortOrder>(
+            state.value("sortOrder").toInt(static_cast<int>(Qt::AscendingOrder)));
+        sortBy(sortColumn, sortOrder);
+    } else if (state.contains("sortColumn") && sortColumn < 0) {
+        current_sort_col_ = -1;
+        current_sort_order_ = Qt::AscendingOrder;
+        if (proxy_) {
+            proxy_->sort(-1);
+        }
+        horizontalHeader()->setSortIndicatorShown(false);
+        horizontalHeader()->setSortIndicator(-1, Qt::AscendingOrder);
+    }
+
+    if (state.contains("horizontalScrollValue")) {
+        horizontalScrollBar()->setValue(state.value("horizontalScrollValue").toInt());
+    }
+    if (state.contains("verticalScrollValue")) {
+        verticalScrollBar()->setValue(state.value("verticalScrollValue").toInt());
+    }
+
+    updateFrozenGeometry();
 }
 
 void xTableView::setColumnFilter(int col, const QVariantMap &cond) {
@@ -593,7 +783,13 @@ void xTableView::setColumnFilter(int col, const QVariantMap &cond) {
 
 void xTableView::clearFilters() { proxy_->clearFilters(); }
 
-void xTableView::sortBy(int col, Qt::SortOrder ord) { sortByColumn(col, ord); }
+void xTableView::sortBy(int col, Qt::SortOrder ord) {
+    current_sort_col_ = col;
+    current_sort_order_ = ord;
+    horizontalHeader()->setSortIndicatorShown(col >= 0);
+    sortByColumn(col, ord);
+    horizontalHeader()->setSortIndicator(col, ord);
+}
 
 void xTableView::freezeLeftColumns(int n) {
     freeze_cols_ = n > 0 ? n : 0;
