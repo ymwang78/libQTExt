@@ -75,6 +75,8 @@ class XAxisOnlyZoomer : public QwtPlotZoomer {
     // Base QwtPlotZoomer::rescale() always applies both axes from zoomRect(),
     // so zoom(0)/zoom(-1) would restore a stale construction-time Y range
     // (often the Qwt default 0..1000) and make trend charts look blown out.
+    // Prefer xAxisZoomed for sync; after rescale(), zoomRect() Y is refreshed to
+    // the live axis so QwtPlotZoomer::zoomed does not leak a stale Y range.
     void rescale() override;
 
     // 在画布上双击鼠标 → 发出 resetRequested 信号（外部 chart 据此恢复原始范围）
@@ -86,6 +88,7 @@ class XAxisOnlyZoomer : public QwtPlotZoomer {
 
   private:
     int m_minSelectionPixels = 8;
+    bool m_resyncingZoomStackY = false;
 };
 
 

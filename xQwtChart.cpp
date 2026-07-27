@@ -11,6 +11,7 @@
 #include "xQwtChart.h"
 
 #include <QMouseEvent>
+#include <QStack>
 #include <QPen>
 
 void xQwtPlot::replot() {
@@ -93,27 +94,51 @@ bool XAxisOnlyZoomer::end(bool ok) {
 }
 
 void XAxisOnlyZoomer::rescale() {
+    // Re-entrancy from setZoomStack() while syncing Y into the zoom stack.
+    if (m_resyncingZoomStackY)
+        return;
+
     QwtPlot* plt = plot();
     if (!plt)
         return;
 
-    const QRectF rect = zoomRect();
-    const QwtScaleDiv xDiv = plt->axisScaleDiv(xAxis());
+    const QwtScaleDiv& xDiv = plt->axisScaleDiv(xAxis());
+    const QwtScaleDiv& yDiv = plt->axisScaleDiv(yAxis());
 
+    const QRectF rect = zoomRect();
     double x1 = rect.left();
     double x2 = rect.right();
     if (!xDiv.isIncreasing())
         qSwap(x1, x2);
 
     // Only touch X. Keep the current Y scale (manual limits / auto-Y) intact.
-    if (xDiv.lowerBound() == x1 && xDiv.upperBound() == x2)
+    if (xDiv.lowerBound() != x1 || xDiv.upperBound() != x2) {
+        const bool doReplot = plt->autoReplot();
+        plt->setAutoReplot(false);
+        plt->setAxisScale(xAxis(), x1, x2);
+        plt->setAutoReplot(doReplot);
+        plt->replot();
+    }
+
+    // Keep zoomRect()/zoomed(QRectF) Y in sync with the live axis so consumers
+    // of the base Qwt signal do not see a construction-time Y range.
+    QStack<QRectF> stack = zoomStack();
+    const int idx = static_cast<int>(zoomRectIndex());
+    if (idx < 0 || idx >= stack.size())
         return;
 
-    const bool doReplot = plt->autoReplot();
-    plt->setAutoReplot(false);
-    plt->setAxisScale(xAxis(), x1, x2);
-    plt->setAutoReplot(doReplot);
-    plt->replot();
+    QRectF entry = stack.at(idx);
+    entry.setLeft(x1);
+    entry.setRight(x2);
+    entry.setTop(yDiv.lowerBound());
+    entry.setBottom(yDiv.upperBound());
+    if (entry == zoomRect())
+        return;
+
+    stack[idx] = entry;
+    m_resyncingZoomStackY = true;
+    setZoomStack(stack, idx);
+    m_resyncingZoomStackY = false;
 }
 
 void XAxisOnlyZoomer::widgetMouseDoubleClickEvent(QMouseEvent* event) {
