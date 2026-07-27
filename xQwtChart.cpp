@@ -92,6 +92,30 @@ bool XAxisOnlyZoomer::end(bool ok) {
     return result;
 }
 
+void XAxisOnlyZoomer::rescale() {
+    QwtPlot* plt = plot();
+    if (!plt)
+        return;
+
+    const QRectF rect = zoomRect();
+    const QwtScaleDiv xDiv = plt->axisScaleDiv(xAxis());
+
+    double x1 = rect.left();
+    double x2 = rect.right();
+    if (!xDiv.isIncreasing())
+        qSwap(x1, x2);
+
+    // Only touch X. Keep the current Y scale (manual limits / auto-Y) intact.
+    if (xDiv.lowerBound() == x1 && xDiv.upperBound() == x2)
+        return;
+
+    const bool doReplot = plt->autoReplot();
+    plt->setAutoReplot(false);
+    plt->setAxisScale(xAxis(), x1, x2);
+    plt->setAutoReplot(doReplot);
+    plt->replot();
+}
+
 void XAxisOnlyZoomer::widgetMouseDoubleClickEvent(QMouseEvent* event) {
     // 左键双击 = 一键还原视图。
     // 双击事件序列是 Press → Release → Press → DblClick → Release，
