@@ -108,7 +108,7 @@ class xAbstractTableModel : public QAbstractTableModel {
   public:
     explicit xAbstractTableModel(QObject *parent = nullptr);
 
-    ~xAbstractTableModel() override = default;
+    ~xAbstractTableModel() override;
 
     void resetModel();
 
@@ -125,6 +125,8 @@ class xAbstractTableModel : public QAbstractTableModel {
     bool setData(const QModelIndex &index, const QVariant &value, int role = Qt::EditRole) override;
 
   protected:
+    bool eventFilter(QObject *watched, QEvent *event) override;
+
     // return the real number of rows in the base data source.
 
     virtual int baseRowCount(const QModelIndex &parent = QModelIndex()) const = 0;

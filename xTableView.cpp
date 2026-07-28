@@ -248,7 +248,29 @@ class xTableViewTopRowsFilter : public QSortFilterProxyModel {
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
-xAbstractTableModel::xAbstractTableModel(QObject *parent) : QAbstractTableModel(parent) {}
+xAbstractTableModel::xAbstractTableModel(QObject *parent) : QAbstractTableModel(parent) {
+    // Models do not receive QWidget::changeEvent(), so listen at the application level to
+    // refresh translated model data when a translator is installed or removed at runtime.
+    if (qApp) {
+        qApp->installEventFilter(this);
+    }
+}
+
+xAbstractTableModel::~xAbstractTableModel() {
+    if (qApp) {
+        qApp->removeEventFilter(this);
+    }
+}
+
+bool xAbstractTableModel::eventFilter(QObject *watched, QEvent *event) {
+    if (watched == qApp && event && event->type() == QEvent::LanguageChange && append_mode_) {
+        const QModelIndex hintIndex = index(baseRowCount(), hint_column_);
+        if (hintIndex.isValid()) {
+            emit dataChanged(hintIndex, hintIndex, {Qt::DisplayRole});
+        }
+    }
+    return QAbstractTableModel::eventFilter(watched, event);
+}
 
 void xAbstractTableModel::resetModel() {
     beginResetModel();
