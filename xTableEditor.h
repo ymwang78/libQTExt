@@ -82,6 +82,10 @@ class xTableStringListEditor : public QWidget {
   signals:
     void editingFinished();
 
+  protected:
+    // 处理内部 QLineEdit 上的 Ctrl+V：多行/制表符剪贴板内容按分隔符合并成列表项
+    bool eventFilter(QObject* watched, QEvent* event) override;
+
   private slots:
     void onButtonClicked();
 
