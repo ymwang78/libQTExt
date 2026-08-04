@@ -882,6 +882,14 @@ void xTableView::freezeTopRows(int n) {
 }
 
 void xTableView::keyPressEvent(QKeyEvent *ev) {
+    // 单元格编辑器打开时，剪贴板和删除类快捷键属于编辑器，表格不再拦截。
+    // 否则编辑器未消费的按键会冒泡到这里，表格直接改写单元格，
+    // 而编辑器关闭时又会提交自己的旧内容把改动覆盖掉。
+    if (isEditing()) {
+        QTableView::keyPressEvent(ev);
+        return;
+    }
+
     if ((ev->modifiers() & Qt::ControlModifier) && (ev->key() == Qt::Key_Delete)) {
         // 同时按下了 Ctrl 键和 Delete 键, 删除整行
         removeSelectedRows();

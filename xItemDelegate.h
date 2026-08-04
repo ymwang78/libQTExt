@@ -51,6 +51,9 @@ class xItemDelegate : public QStyledItemDelegate {
     bool editorEvent(QEvent *event, QAbstractItemModel *model, const QStyleOptionViewItem &option,
                      const QModelIndex &index) override;
 
+    // 单元格编辑器上的粘贴处理（编辑器由 view 自动安装本代理为事件过滤器）
+    bool eventFilter(QObject *object, QEvent *event) override;
+
   private slots:
 
     void commitAndCloseEditor();

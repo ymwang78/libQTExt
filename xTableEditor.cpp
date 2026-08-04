@@ -9,7 +9,10 @@
 //
 // ***************************************************************
 #include "xTableEditor.h"
+#include <QApplication>
+#include <QClipboard>
 #include <QHBoxLayout>
+#include <QKeyEvent>
 #include <QLineEdit>
 #include <QPalette>
 #include <QPointer>
@@ -45,6 +48,25 @@ static QStringList splitStringListEditorText(const QString& text) {
     }
     values.removeAll(QString());
     return values;
+}
+
+// 剪贴板内容可能来自终端或表格软件，带有换行 / 制表符。
+// 编辑器是单行的，这里把这些分隔符统一成 ", "，让整段内容作为多个列表项粘入。
+static QString normalizeStringListClipboardText(const QString& raw) {
+    QString text = raw;
+    text.replace(QLatin1String("\r\n"), QLatin1String("\n"));
+    text.replace(QLatin1Char('\r'), QLatin1Char('\n'));
+    text.replace(QLatin1Char('\t'), QLatin1Char('\n'));
+
+    QStringList parts;
+    const QStringList lines = text.split(QLatin1Char('\n'));
+    for (const QString& line : lines) {
+        const QString trimmed = line.trimmed();
+        if (!trimmed.isEmpty()) {
+            parts << trimmed;
+        }
+    }
+    return parts.join(QStringLiteral(", "));
 }
 
 // 构造函数接收工厂函数
@@ -85,6 +107,7 @@ xTableStringListEditor::xTableStringListEditor(
     setLayout(layout);
 
     setFocusProxy(line_edit_);
+    line_edit_->installEventFilter(this);
     connect(line_edit_, &QLineEdit::textEdited, this, &xTableStringListEditor::onTextEdited);
     connect(line_edit_, &QLineEdit::editingFinished, this, [this]() {
         if (dialog_open_) {
@@ -170,6 +193,23 @@ void xTableStringListEditor::applyTheme(const QPalette& palette) {
                  theme.buttonHoverBorder,
                  theme.buttonPressedBackground,
                  theme.buttonPressedBorder));
+}
+
+bool xTableStringListEditor::eventFilter(QObject* watched, QEvent* event) {
+    if (watched == line_edit_ && event && event->type() == QEvent::KeyPress) {
+        auto* key_event = static_cast<QKeyEvent*>(event);
+        if (key_event->matches(QKeySequence::Paste) && !line_edit_->isReadOnly()) {
+            const QClipboard* clipboard = QApplication::clipboard();
+            const QString text =
+                clipboard ? normalizeStringListClipboardText(clipboard->text()) : QString();
+            if (!text.isEmpty()) {
+                line_edit_->insert(text);
+                current_list_ = splitStringListEditorText(line_edit_->text());
+            }
+            return true;
+        }
+    }
+    return QWidget::eventFilter(watched, event);
 }
 
 void xTableStringListEditor::onTextEdited(const QString& text) {

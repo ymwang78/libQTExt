@@ -84,6 +84,68 @@ static QLineEdit *editorLineEdit(QWidget *editor) {
     return editor->findChild<QLineEdit *>();
 }
 
+// 剪贴板内容常来自终端 / Excel，往往带有 \r\n、制表符和尾部空白。
+// 单元格编辑器是单行的，只取第一行第一格并去掉首尾空白，
+// 否则带验证器的编辑器（如数值列的 QDoubleValidator）会把整次粘贴判为 Invalid 而全部丢弃。
+static QString clipboardTextForCellEditor() {
+    const QClipboard *clipboard = QApplication::clipboard();
+    if (!clipboard) return QString();
+
+    QString text = clipboard->text();
+    if (text.isEmpty()) return text;
+
+    text.replace(QLatin1String("\r\n"), QLatin1String("\n"));
+    text.replace(QLatin1Char('\r'), QLatin1Char('\n'));
+    const int line_end = text.indexOf(QLatin1Char('\n'));
+    if (line_end >= 0) text.truncate(line_end);
+    const int cell_end = text.indexOf(QLatin1Char('\t'));
+    if (cell_end >= 0) text.truncate(cell_end);
+    return text.trimmed();
+}
+
+// 返回 true 表示粘贴已由编辑器处理，事件不再向表格冒泡
+static bool pasteIntoEditor(QWidget *editor) {
+    if (!editor) return false;
+
+    const QString text = clipboardTextForCellEditor();
+
+    // 不可编辑的下拉框自身不处理 Ctrl+V，这里按文本匹配选项
+    if (auto *combo = qobject_cast<QComboBox *>(editor)) {
+        if (text.isEmpty()) return true;
+        const int match = combo->findText(text, Qt::MatchFixedString);
+        if (match >= 0) {
+            combo->setCurrentIndex(match);
+        } else if (combo->isEditable()) {
+            combo->setCurrentText(text);
+        }
+        return true;
+    }
+
+    // 布尔列的编辑器是包着 QCheckBox 的容器
+    QCheckBox *check = qobject_cast<QCheckBox *>(editor);
+    if (!check) check = editor->findChild<QCheckBox *>();
+    if (check) {
+        if (text.isEmpty()) return true;
+        const QString normalized = text.toLower();
+        if (normalized == QLatin1String("true") || normalized == QLatin1String("1") ||
+            normalized == QLatin1String("yes") || normalized == QLatin1String("on")) {
+            check->setChecked(true);
+        } else if (normalized == QLatin1String("false") || normalized == QLatin1String("0") ||
+                   normalized == QLatin1String("no") || normalized == QLatin1String("off")) {
+            check->setChecked(false);
+        }
+        return true;
+    }
+
+    if (auto *lineEdit = editorLineEdit(editor)) {
+        if (lineEdit->isReadOnly()) return false;
+        if (!text.isEmpty()) lineEdit->insert(text);
+        return true;
+    }
+
+    return false;
+}
+
 static Qt::Alignment editorAlignmentFor(const QModelIndex &index) {
     QVariant alignmentData = index.data(Qt::TextAlignmentRole);
     if (alignmentData.isValid()) {
@@ -546,6 +608,21 @@ bool xItemDelegate::editorEvent(QEvent *event, QAbstractItemModel *model,
 
     // 对于其他事件，使用基类的默认行为
     return QStyledItemDelegate::editorEvent(event, model, option, index);
+}
+
+bool xItemDelegate::eventFilter(QObject *object, QEvent *event) {
+    // view 打开编辑器时会把本代理安装为编辑器的事件过滤器，这里统一接管 Ctrl+V：
+    // 下拉框 / 复选框自身不处理粘贴，若放任事件冒泡，表格会直接改写单元格，
+    // 随后编辑器关闭提交旧值，用户看到的就是"粘贴没反应"。
+    if (event && event->type() == QEvent::KeyPress) {
+        auto *keyEvent = static_cast<QKeyEvent *>(event);
+        if (keyEvent->matches(QKeySequence::Paste)) {
+            if (pasteIntoEditor(qobject_cast<QWidget *>(object))) {
+                return true;
+            }
+        }
+    }
+    return QStyledItemDelegate::eventFilter(object, event);
 }
 
 void xItemDelegate::commitAndCloseEditor() {
