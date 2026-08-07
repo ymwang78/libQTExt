@@ -557,7 +557,8 @@ QString xTableView::anyToString(const zce::Any &a) {
     if (a.is_boolean()) return a.boolean() ? "true" : "false";
     if (a.is_string()) return QString::fromStdString(a.str());
     // 数组和字典按 JSON 显示，而不是 "[vector 2 items]" 那样的占位串。
-    // DisplayRole 文本会经 xItemDelegate::setModelData 交给 Any::fromJsonString；
+    // 显示文本会被复制进剪贴板，再粘贴回单元格编辑器时经
+    // xItemDelegate::setModelData 交给 Any::fromJsonString；
     // 占位串无法还原为 vector/dict，解析失败会落成字符串，悄悄弄丢原类型。
     if (a.is_vector() || a.is_dict()) return QString::fromStdString(a.toJsonString());
     return "<unknown>";
