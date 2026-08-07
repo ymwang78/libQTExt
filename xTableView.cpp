@@ -556,8 +556,11 @@ QString xTableView::anyToString(const zce::Any &a) {
     if (a.is_i64()) return QString::number(a.i64());
     if (a.is_boolean()) return a.boolean() ? "true" : "false";
     if (a.is_string()) return QString::fromStdString(a.str());
-    if (a.is_vector()) return QString("[vector %1 items]").arg(a.vector().size());
-    if (a.is_dict()) return QString("{dict %1 items}").arg(a.dict().size());
+    // 数组和字典按 JSON 显示，而不是 "[vector 2 items]" 那样的占位串。
+    // 编辑器（xItemDelegate::setModelData）拿格子里的文本喂 Any::fromJsonString，
+    // 所以显示什么就必须能被解析回什么。占位串解析不回来，
+    // 等于这一格只能看不能改，改了还会把原值悄悄换成空值。
+    if (a.is_vector() || a.is_dict()) return QString::fromStdString(a.toJsonString());
     return "<unknown>";
 }
 
