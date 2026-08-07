@@ -558,8 +558,8 @@ QString xTableView::anyToString(const zce::Any &a) {
     if (a.is_string()) return QString::fromStdString(a.str());
     // 数组和字典按 JSON 显示，而不是 "[vector 2 items]" 那样的占位串。
     // 编辑器（xItemDelegate::setModelData）拿格子里的文本喂 Any::fromJsonString，
-    // 所以显示什么就必须能被解析回什么——占位串解析不回来，等于这一格只能看不
-    // 能改，改了还会把原值悄悄换成空值。
+    // 所以显示什么就必须能被解析回什么。占位串解析不回来，
+    // 等于这一格只能看不能改，改了还会把原值悄悄换成空值。
     if (a.is_vector() || a.is_dict()) return QString::fromStdString(a.toJsonString());
     return "<unknown>";
 }
