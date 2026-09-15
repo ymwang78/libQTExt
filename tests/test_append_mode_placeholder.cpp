@@ -17,6 +17,7 @@
 #include <QApplication>
 #include <QClipboard>
 #include <QDebug>
+#include <QIdentityProxyModel>
 #include <QItemSelectionModel>
 #include <QLineEdit>
 #include <QTest>
@@ -220,10 +221,19 @@ class AppendModePlaceholderView : public ::testing::Test {
   protected:
     static void SetUpTestSuite() { ensureApplication(); }
 
-    void setUpView(int row_count, bool string_list_first_column = false) {
+    // identity_proxy 为 true 时在源模型外再套一层 QIdentityProxyModel：
+    // setSourceModel() 收的是任意模型，视图自带的排序过滤代理下面可能还有别的代理。
+    void setUpView(int row_count, bool string_list_first_column = false,
+                   bool identity_proxy = false) {
         model_ = std::make_unique<AppendTableModel>(row_count, string_list_first_column);
+        QAbstractItemModel* source = model_.get();
+        if (identity_proxy) {
+            identity_proxy_ = std::make_unique<QIdentityProxyModel>();
+            identity_proxy_->setSourceModel(model_.get());
+            source = identity_proxy_.get();
+        }
         view_ = std::make_unique<xTableView>();
-        view_->setSourceModel(model_.get());
+        view_->setSourceModel(source);
         view_->resize(480, 320);
         view_->show();
         ASSERT_TRUE(QTest::qWaitForWindowExposed(view_.get()));
@@ -247,8 +257,9 @@ class AppendModePlaceholderView : public ::testing::Test {
         QCoreApplication::processEvents();
     }
 
-    // 成员按声明逆序析构：先拆视图，再拆模型。
+    // 成员按声明逆序析构：先拆视图，再拆中间代理，最后拆模型。
     std::unique_ptr<AppendTableModel> model_;
+    std::unique_ptr<QIdentityProxyModel> identity_proxy_;
     std::unique_ptr<xTableView> view_;
 };
 
@@ -333,6 +344,21 @@ TEST_F(AppendModePlaceholderView, DeleteKeyOnPlaceholderCellsAddsNoRow) {
 
 TEST_F(AppendModePlaceholderView, PasteSkipsBlankLineOnPlaceholderAndKeepsLaterLines) {
     setUpView(1);
+    QApplication::clipboard()->setText(QStringLiteral("a\n\nb"));
+    view_->setCurrentIndex(viewIndex(1, 0));
+
+    QTest::keyClick(view_.get(), Qt::Key_V, Qt::ControlModifier);
+
+    ASSERT_EQ(model_->dataRowCount(), 3);
+    EXPECT_EQ(model_->cell(1, 0), QVariant(QStringLiteral("a")));
+    EXPECT_EQ(model_->cell(2, 0), QVariant(QStringLiteral("b")));
+    EXPECT_EQ(model_->insertedValues(),
+              (QVariantList{QStringLiteral("a"), QStringLiteral("b")}));
+}
+
+TEST_F(AppendModePlaceholderView, PasteSkipsBlankLineOnPlaceholderThroughProxyChain) {
+    // 视图 -> xTableViewSortFilter -> QIdentityProxyModel -> AppendTableModel
+    setUpView(1, /*string_list_first_column=*/false, /*identity_proxy=*/true);
     QApplication::clipboard()->setText(QStringLiteral("a\n\nb"));
     view_->setCurrentIndex(viewIndex(1, 0));
 

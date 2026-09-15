@@ -1052,16 +1052,18 @@ void xTableView::copySelection() {
     QApplication::clipboard()->setText(text);
 }
 
-// view_model 是视图直接使用的模型（通常是排序过滤代理），row 为其中的行号。
+// view_model 是视图直接使用的模型，row 为其中的行号。view_model 通常是排序过滤代理，
+// 而 setSourceModel() 收的是任意模型，源模型外面可能还套着别的代理，所以逐层映射到底。
 static bool isAppendPlaceholderRow(const QAbstractItemModel *view_model, int row) {
-    auto *proxy = qobject_cast<const QAbstractProxyModel *>(view_model);
-    auto *source =
-        qobject_cast<const xAbstractTableModel *>(proxy ? proxy->sourceModel() : view_model);
-    if (!source || !source->appendMode()) return false;
-
+    const QAbstractItemModel *model = view_model;
     QModelIndex idx = view_model->index(row, 0);
-    if (!idx.isValid()) return false;
-    if (proxy) idx = proxy->mapToSource(idx);
+    while (auto *proxy = qobject_cast<const QAbstractProxyModel *>(model)) {
+        if (!idx.isValid()) return false;
+        idx = proxy->mapToSource(idx);
+        model = proxy->sourceModel();
+    }
+    auto *source = qobject_cast<const xAbstractTableModel *>(model);
+    if (!source || !source->appendMode() || !idx.isValid()) return false;
     // 追加模式下占位行总是源模型的最后一行
     return idx.row() == source->rowCount() - 1;
 }
