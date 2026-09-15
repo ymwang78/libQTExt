@@ -339,6 +339,23 @@ Qt::ItemFlags xAbstractTableModel::flags(const QModelIndex &index) const {
     return baseFlags(index);
 }
 
+// 占位行上的提交是否为"空"：无效值、空或全空白的字符串、空或各项都是空白的字符串列表。
+// 0、false 等其他类型的值都算有内容。
+static bool isEmptyAppendValue(const QVariant &value) {
+    if (!value.isValid()) return true;
+    switch (value.typeId()) {
+        case QMetaType::QString:
+            return value.toString().trimmed().isEmpty();
+        case QMetaType::QStringList: {
+            const QStringList items = value.toStringList();
+            return std::all_of(items.cbegin(), items.cend(),
+                               [](const QString &item) { return item.trimmed().isEmpty(); });
+        }
+        default:
+            return false;
+    }
+}
+
 bool xAbstractTableModel::setData(const QModelIndex &index, const QVariant &value, int role) {
     if (role != Qt::EditRole || !index.isValid()) {
         return false;
@@ -348,6 +365,13 @@ bool xAbstractTableModel::setData(const QModelIndex &index, const QVariant &valu
     // 检查是否是占位符行
     if (append_mode_ && index.row() == realRowCount) {
         // 是占位符行，触发新增逻辑
+
+        // 0. 空提交不新增行：在占位行打开编辑器后什么都没填就回车、点到别的格子
+        //    （Qt 在当前索引变化时会自动提交编辑器），或按 Delete 清空选中的占位格，
+        //    都会把空值提交到这里，不拦住就会插进一条空记录。
+        if (isEmptyAppendValue(value)) {
+            return false;
+        }
 
         // 1. 通知视图，即将在占位符的位置（即末尾）插入一个新行
         beginInsertRows(QModelIndex(), realRowCount, realRowCount);
@@ -1028,21 +1052,40 @@ void xTableView::copySelection() {
     QApplication::clipboard()->setText(text);
 }
 
+// view_model 是视图直接使用的模型，row 为其中的行号。view_model 通常是排序过滤代理，
+// 而 setSourceModel() 收的是任意模型，源模型外面可能还套着别的代理，所以逐层映射到底。
+static bool isAppendPlaceholderRow(const QAbstractItemModel *view_model, int row) {
+    const QAbstractItemModel *model = view_model;
+    QModelIndex idx = view_model->index(row, 0);
+    while (auto *proxy = qobject_cast<const QAbstractProxyModel *>(model)) {
+        if (!idx.isValid()) return false;
+        idx = proxy->mapToSource(idx);
+        model = proxy->sourceModel();
+    }
+    auto *source = qobject_cast<const xAbstractTableModel *>(model);
+    if (!source || !source->appendMode() || !idx.isValid()) return false;
+    // 追加模式下占位行总是源模型的最后一行
+    return idx.row() == source->rowCount() - 1;
+}
+
 void xTableView::paste() {
     QString text = QApplication::clipboard()->text().trimmed();
     if (text.isEmpty()) return;
     QStringList rows = text.split("\n");
     QModelIndex start = currentIndex();
     if (!start.isValid()) start = model()->index(0, 0);
-    int r0 = start.row();
+    int row = start.row();
     int c0 = start.column();
     for (int i = 0; i < rows.size(); ++i) {
         QStringList cols = rows[i].split("\t");
         for (int j = 0; j < cols.size(); ++j) {
-            QModelIndex idx = model()->index(r0 + i, c0 + j);
+            QModelIndex idx = model()->index(row, c0 + j);
             if (idx.isValid() && (idx.flags() & Qt::ItemIsEditable))
                 model()->setData(idx, cols[j], Qt::EditRole);
         }
+        // 空行粘到占位行上不会新增行，占位行还在原处；下一行接着写占位行，
+        // 否则后面的行会越过表尾被丢掉。
+        if (!isAppendPlaceholderRow(model(), row)) ++row;
     }
 }
 
