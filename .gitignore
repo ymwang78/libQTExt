@@ -17,6 +17,8 @@
 !include/
 !lib/x64/
 !libsrc/
+!/tests/
+/tests/build*/
 
 bin/*
 include/boost/*
