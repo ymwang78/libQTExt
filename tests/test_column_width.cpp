@@ -624,6 +624,47 @@ TEST_F(ColumnWidth, HidingAndShowingAColumnKeepsItsProportion) {
     EXPECT_EQ(totalColumnWidth(), viewportWidth());
 }
 
+// 缩窗时必须先给后面每一列留出 minimumSectionSize，否则前面的宽列按权重把空间吃光、
+// 后面的列被顶到最小宽度，多分出去的部分收不回来，总宽就超出视口冒出横向滚动条 ——
+// 而那些最小宽度本来是放得下的。
+TEST_F(ColumnWidth, ProportionalColumnsReserveMinimumWidthForLaterColumns) {
+    setUpView(6, 4, 900, 320);
+    header()->setMinimumSectionSize(50);
+    view_->setProportionalColumns(true);
+    QCoreApplication::processEvents();
+
+    dragColumnTo(0, viewportWidth() * 7 / 10);  // 第 0 列约占 70%
+    ASSERT_NEAR(columnShare(0), 0.7, 0.03);
+
+    resizeViewTo(420);
+    ASSERT_GE(viewportWidth(), 50 * 4);  // 前提：四列的最小宽度放得下
+
+    EXPECT_EQ(totalColumnWidth(), viewportWidth());
+    for (int col = 0; col < 4; ++col) {
+        EXPECT_GE(view_->columnWidth(col), 50) << "col " << col;
+    }
+}
+
+// 隐藏期间缩放窗口，重新显示后该列的占比仍是隐藏前那一份。
+TEST_F(ColumnWidth, HidingResizingThenShowingAColumnKeepsItsProportion) {
+    setUpView(6, 4, 480, 320);
+    view_->setProportionalColumns(true);
+    QCoreApplication::processEvents();
+
+    dragColumnTo(0, viewportWidth() / 2);
+    const double share_before = columnShare(0);
+    ASSERT_NEAR(share_before, 0.5, 0.02);
+
+    view_->setColumnHidden(2, true);
+    QCoreApplication::processEvents();
+    resizeViewTo(820);  // 隐藏期间缩放
+    view_->setColumnHidden(2, false);
+    QCoreApplication::processEvents();
+
+    EXPECT_NEAR(columnShare(0), share_before, 0.02);
+    EXPECT_EQ(totalColumnWidth(), viewportWidth());
+}
+
 // --- 6. 三种列宽模式互斥 ---------------------------------------------------------
 
 TEST_F(ColumnWidth, StretchToFillTakesOverFromProportionalColumns) {

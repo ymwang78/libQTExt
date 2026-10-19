@@ -1193,16 +1193,28 @@ void xTableView::applyProportionalColumns() {
 
     // 宽度由"权重累加值"取整后差分得出，而不是逐列各自取整：这样截断误差不会累加，
     // 最后一列直接吃掉余数，总宽正好等于视口宽度 —— 不留白也不多出滚动条。
+    // 视口能不能装下所有可见列的最小宽度。装不下时只能溢出，横向滚动条是正确结果。
+    const int visible_count = static_cast<int>(visible.size());
+    const bool minimum_fits =
+        minimum <= 0 || static_cast<qint64>(minimum) * visible_count <= total;
+
     const QScopedValueRollback<bool> guard(applying_proportional_columns_, true);
     double accumulated = 0.0;
     int placed = 0;
-    for (int i = 0; i < visible.size(); ++i) {
+    for (int i = 0; i < visible_count; ++i) {
         accumulated += proportional_weights_[visible[i]];
-        const int edge = (i + 1 == visible.size())
+        const int edge = (i + 1 == visible_count)
                              ? total
                              : static_cast<int>(std::llround(accumulated / sum * total));
-        // 夹到 minimumSectionSize 之后 placed 按实际宽度累加，后面的列自己吸收这点偏差。
-        const int width = qMax(edge - placed, minimum);
+        int width = qMax(edge - placed, minimum);
+        if (minimum_fits) {
+            // 必须先给后面每一列留出 minimumSectionSize。只对后面的列做 qMax 是不够的：
+            // 前面的宽列按权重先把空间吃掉，后面的列再被顶到最小宽度，多分出去的部分
+            // 已经收不回来，总宽就超出视口了（权重 0.7 配 4 列、minimumSectionSize 50、
+            // 视口 380 时实测铺出 416，而 4 × 50 本来放得下）。
+            const int reserved = minimum * (visible_count - 1 - i);
+            width = qMax(qMin(width, total - placed - reserved), minimum);
+        }
         setColumnWidth(visible[i], width);
         placed += width;
     }
