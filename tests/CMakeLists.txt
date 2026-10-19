@@ -144,3 +144,28 @@ if(MSVC)
     target_compile_options(test_column_width PRIVATE /utf-8 /wd4996)
 endif()
 add_test(NAME column_width COMMAND test_column_width)
+
+# 浮点显示：三档模式的精度口径、科学计数法格式串、UI 状态往返。
+add_executable(test_number_display
+    test_number_display.cpp
+    ${LIBQTEXT_TABLE_SOURCES}
+)
+target_compile_definitions(test_number_display PRIVATE USE_GTEST_MAIN)
+target_include_directories(test_number_display
+    PRIVATE
+        "${LIBQTEXT_DIR}"
+        "${CXXPROJ_ROOT}/include"
+)
+target_link_libraries(test_number_display
+    PRIVATE
+        GTest::gtest
+        GTest::gtest_main
+        Qt6::Widgets
+        Qt6::Test
+        "${LIBQTEXT_ZCE_LIBRARY}"
+        ${LIBQTEXT_ZCE_DEPS}
+)
+if(MSVC)
+    target_compile_options(test_number_display PRIVATE /utf-8 /wd4996)
+endif()
+add_test(NAME number_display COMMAND test_number_display)

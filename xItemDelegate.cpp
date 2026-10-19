@@ -35,22 +35,31 @@
 #include <cstdio>  // For snprintf
 
 /**
- * @brief 将浮点数格式化为7位有效数字的科学计数法字符串。
+ * @brief 将浮点数格式化为科学计数法字符串。
  * @param value 要格式化的浮点数。
+ * @param precision 小数点后保留的位数；<= 0 时按 6 位。
  * @return 格式化后的字符串，例如 "+1.234560e+01"。
  */
 static QString formatScientific(double value, int precision) {
+    // 小数点后的位数。<= 0 按 6 位（和 MODE_GENERAL 缺省 8 位有效数字同一个路子），
+    // 上限 24 位是为了下面的 buffer 一定装得下，不至于被 snprintf 截断。
+    int digits = precision > 0 ? precision : 6;
+    if (digits > 24) digits = 24;
+
     char fmt[32] = {0};
 
-    snprintf(fmt, sizeof(fmt), "%%+%d.e", precision);
-    // 缓冲区要足够大以容纳格式化后的字符串
-    char buffer[32];
+    // 步骤1: 先拼出格式串，再用它完成大部分格式化工作
+    // %       - 开始格式化说明
+    // +       - 始终显示符号 (正号或负号)
+    // .digits - 小数点后保留 digits 位数字。位数必须写在小数点后面：
+    //           写成 "%+6.e" 的话 6 是最小字段宽度，而小数点后没跟数字等于精度 0，
+    //           12.3456789 会被打成 "+1e+01"。
+    // e       - 使用小写'e'的科学计数法
+    snprintf(fmt, sizeof(fmt), "%%+.%de", digits);
 
-    // 步骤1: 使用 snprintf 完成大部分格式化工作
-    // %      - 开始格式化说明
-    // +      - 始终显示符号 (正号或负号)
-    // .6     - 小数点后保留6位数字
-    // e      - 使用小写'e'的科学计数法
+    // 缓冲区要足够大以容纳格式化后的字符串：符号 + 首位 + 小数点 + 24 位 + "e+308"
+    char buffer[64];
+
     snprintf(buffer, sizeof(buffer), fmt, value);
 
     QString result = QString::fromLatin1(buffer);
