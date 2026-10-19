@@ -182,6 +182,8 @@ class xTableView : public QTableView {
     QSet<int> proportional_manual_columns_;
     // 自己 setColumnWidth 期间置位，用来在 sectionResized 里区分程序设置与用户拖拽。
     bool applying_proportional_columns_ = false;
+    // 已排了一次延后重排，用来把连续的隐藏 / 显示（"显示所有列"）合并成一次。
+    bool proportional_reflow_pending_ = false;
     QSet<int> bool_columns_;
     QMap<int, QVector<bool>> bool_column_memory_states_;
     xCheckableHeaderView *checkable_header_;
@@ -321,6 +323,9 @@ class xTableView : public QTableView {
     // 把权重铺到视口上（带重入守卫），顺带在列数变化后补齐权重。
     void applyProportionalColumns();
 
+    // 排一次延后到下一轮事件循环的重排，多次调用合并成一次。
+    void scheduleProportionalReflow();
+
     // 列数变了之后补齐 / 截断权重，并重新归一化。
     void syncProportionalWeights();
 
@@ -329,6 +334,13 @@ class xTableView : public QTableView {
 
     // horizontalHeader() 的 sectionResized 槽：只有用户拖拽才更新权重并打手动标记。
     void onProportionalSectionResized(int logical_index, int old_size, int new_size);
+
+    // 模型列数变化的槽：按插入 / 删除的位置搬动权重与手动标记，再重排。
+    void onProportionalColumnsInserted(const QModelIndex &parent, int first, int last);
+    void onProportionalColumnsRemoved(const QModelIndex &parent, int first, int last);
+
+    // 把上面两个槽接到视图当前的模型上（模型换了要重接）。
+    void connectProportionalModelSignals(QAbstractItemModel *old_view_model);
 
     void updateBoolColumnHeaderState(int column);
 

@@ -20,6 +20,7 @@
 
 #include <QApplication>
 #include <QHeaderView>
+#include <QJsonArray>
 #include <QJsonObject>
 #include <QScrollBar>
 #include <QStandardItemModel>
@@ -490,7 +491,140 @@ TEST_F(ColumnWidth, ProportionalColumnsShareViewportWithColumnsAddedLater) {
     }
 }
 
-// --- 6. 三种列宽模式互斐 ---------------------------------------------------------
+// --- 5b. 等宽可调：列数变化与隐藏列（PR #17 评审意见）------------------------------
+//
+// 这一组都刻意不在操作后面跟 resize —— 原来的实现要靠一次 resize 才会重排，
+// 而插入列时恰好会因为总宽溢出、横向滚动条出现而间接触发一次 resize，
+// 所以"操作完立刻 resize"的测试看不出问题来。
+
+// 注意：这一条不是严格的回归测试 —— 不接模型信号时它也是绿的。插入列会让旧布局的总宽
+// 溢出视口，横向滚动条一出现就带来一次 resize，于是间接触发了重排。真正能把"没接模型信号"
+// 抓出来的是下面删除列和中间插列的几条。留着它是因为这个行为本身值得断言。
+TEST_F(ColumnWidth, ProportionalColumnsRefillViewportAfterColumnInsertedWithoutResize) {
+    setUpView(6, 3, 480, 320);
+    view_->setProportionalColumns(true);
+    QCoreApplication::processEvents();
+
+    model_->insertColumn(3);
+    QCoreApplication::processEvents();
+
+    EXPECT_EQ(totalColumnWidth(), viewportWidth());
+    for (int col = 0; col < 4; ++col) {
+        EXPECT_NEAR(view_->columnWidth(col), viewportWidth() / 4, 2) << "col " << col;
+    }
+}
+
+TEST_F(ColumnWidth, ProportionalColumnsRefillViewportAfterColumnRemovedWithoutResize) {
+    setUpView(6, 4, 480, 320);
+    view_->setProportionalColumns(true);
+    QCoreApplication::processEvents();
+
+    model_->removeColumn(3);
+    QCoreApplication::processEvents();
+
+    EXPECT_EQ(totalColumnWidth(), viewportWidth());
+    for (int col = 0; col < 3; ++col) {
+        EXPECT_NEAR(view_->columnWidth(col), viewportWidth() / 3, 2) << "col " << col;
+    }
+}
+
+// 中间插列会让逻辑列号整段右移，权重必须跟着搬，否则用户拖出来的宽度会跑到隔壁列去。
+TEST_F(ColumnWidth, ProportionalWeightsFollowTheirColumnWhenOneIsInsertedInTheMiddle) {
+    setUpView(6, 3, 480, 320);
+    view_->setProportionalColumns(true);
+    QCoreApplication::processEvents();
+
+    dragColumnTo(2, viewportWidth() * 3 / 5);  // 把最后一列拖到 3/5
+    ASSERT_NEAR(columnShare(2), 0.6, 0.02);
+    // 此时三列的比例是 1 : 1 : 3。
+
+    model_->insertColumn(1);  // 插在中间：原来的 col1/col2 变成 col2/col3
+    QCoreApplication::processEvents();
+
+    // 新列要从大家身上分走宽度，所以各列的绝对占比都会缩（0.6 -> 0.45），
+    // 但"原来那一列仍是最宽的、且是 col0 的 3 倍"这个相对关系必须跟着列走到 col3。
+    // 权重没跟着搬的话，这 3 倍会留在 col2 上，col3 拿到的是新列的平均份。
+    EXPECT_NEAR(columnShare(3), columnShare(0) * 3, 0.03);
+    EXPECT_GT(view_->columnWidth(3), view_->columnWidth(2));
+    EXPECT_EQ(totalColumnWidth(), viewportWidth());
+}
+
+TEST_F(ColumnWidth, ProportionalManualColumnsFollowTheirColumnWhenOneIsRemovedInTheMiddle) {
+    setUpView(6, 4, 480, 320);
+    view_->setProportionalColumns(true);
+    QCoreApplication::processEvents();
+
+    dragColumnTo(3, viewportWidth() / 2);  // 末列设成手动列
+    ASSERT_NEAR(columnShare(3), 0.5, 0.02);
+    // 此时四列的比例是 1 : 1 : 1 : 3。
+
+    model_->removeColumn(1);  // 删中间一列：原来的 col3 变成 col2
+    QCoreApplication::processEvents();
+    // 删掉的那一列的宽度分给其余列，所以绝对占比会涨（0.5 -> 0.6）；
+    // 要看的是 3 倍这个相对关系跟着列走到了 col2。
+    ASSERT_NEAR(columnShare(2), columnShare(0) * 3, 0.03);
+
+    // 手动标记也该跟着搬到 col2：拖别的列时它的宽度不该被动。
+    const int manual_width = view_->columnWidth(2);
+    dragColumnTo(0, viewportWidth() / 4);
+
+    EXPECT_EQ(view_->columnWidth(2), manual_width);
+}
+
+// 隐藏一列之后，剩下的列要把空出来的宽度分掉，不能留一块空白。
+TEST_F(ColumnWidth, ProportionalColumnsRefillViewportWhenAColumnIsHidden) {
+    setUpView(6, 4, 480, 320);
+    view_->setProportionalColumns(true);
+    QCoreApplication::processEvents();
+
+    view_->setColumnHidden(1, true);
+    QCoreApplication::processEvents();
+
+    const int visible = view_->columnWidth(0) + view_->columnWidth(2) + view_->columnWidth(3);
+    EXPECT_EQ(visible, viewportWidth());
+    EXPECT_NEAR(view_->columnWidth(0), viewportWidth() / 3, 2);
+}
+
+// 重新显示不是拖拽：按拖拽处理会把这一列错记成手动列，从此不再参与自动分配。
+TEST_F(ColumnWidth, ShowingAHiddenColumnDoesNotMarkItManual) {
+    setUpView(6, 4, 480, 320);
+    view_->setProportionalColumns(true);
+    QCoreApplication::processEvents();
+
+    view_->setColumnHidden(1, true);
+    QCoreApplication::processEvents();
+    view_->setColumnHidden(1, false);
+    QCoreApplication::processEvents();
+    ASSERT_EQ(totalColumnWidth(), viewportWidth());
+
+    // 把 col0 拖到半个视口：col1 没被拖过，应当参与吸收差额、跟着变窄。
+    const int w1_before = view_->columnWidth(1);
+    dragColumnTo(0, viewportWidth() / 2);
+
+    EXPECT_LT(view_->columnWidth(1), w1_before);
+    EXPECT_EQ(totalColumnWidth(), viewportWidth());
+}
+
+// 隐藏期间权重留着，列回来还是原来那一份。
+TEST_F(ColumnWidth, HidingAndShowingAColumnKeepsItsProportion) {
+    setUpView(6, 4, 480, 320);
+    view_->setProportionalColumns(true);
+    QCoreApplication::processEvents();
+
+    dragColumnTo(0, viewportWidth() / 2);
+    const double share_before = columnShare(0);
+    ASSERT_NEAR(share_before, 0.5, 0.02);
+
+    view_->setColumnHidden(2, true);
+    QCoreApplication::processEvents();
+    view_->setColumnHidden(2, false);
+    QCoreApplication::processEvents();
+
+    EXPECT_NEAR(columnShare(0), share_before, 0.02);
+    EXPECT_EQ(totalColumnWidth(), viewportWidth());
+}
+
+// --- 6. 三种列宽模式互斥 ---------------------------------------------------------
 
 TEST_F(ColumnWidth, StretchToFillTakesOverFromProportionalColumns) {
     setUpView(6, 3, 480, 320);
@@ -549,7 +683,7 @@ TEST_F(ColumnWidth, ProportionalColumnsClearStretchToFillInUiState) {
 
     const QJsonObject state = view_->saveUiState();
     EXPECT_TRUE(state.value("proportionalColumns").toBool());
-    // 三种模式互斐，状态里不能同时写着两个：restore 时的
+    // 三种模式互斥，状态里不能同时写着两个：restore 时的
     // setStretchToFill(true) 会把等宽可调模式又顶掉。
     EXPECT_FALSE(state.value("stretchToFill").toBool());
 }
@@ -595,6 +729,42 @@ TEST_F(ColumnWidth, AutoFitColumnsIsNoOpInProportionalColumnsMode) {
     // 量宽走的也是 setColumnWidth，在这个模式下会被当成用户拖拽，
     // 把每一列都打上手动标记，所以这里什么都不做。
     EXPECT_EQ(columnWidths(), before);
+}
+
+// v1 的状态里没有 stretchLastSection 字段，但它的 horizontalHeaderState 里带着这个标志。
+// 恢复到一个已经处于比例模式的视图上时，记账（stretch_last_section_saved_）必须按刚恢复
+// 出来的值重新捕获，否则以后退出比例模式时还原的是 restore 之前那个过期的设置。
+TEST_F(ColumnWidth, RestoreUiStateFromVersionOneRefreshesSavedStretchLastSection) {
+    // 源视图：stretchLastSection 开着，存一份状态再按 v1 的样子裁掉新字段，
+    // 但保留一组列宽比例，这样恢复之后目标视图仍然留在比例模式里。
+    setUpView(4, 3);
+    header()->setStretchLastSection(true);
+    QJsonObject legacy = view_->saveUiState();
+    legacy.remove("stretchLastSection");
+    legacy.remove("proportionalColumns");
+    legacy.remove("proportionalColumnWeights");
+    legacy.remove("proportionalManualColumns");
+    legacy["version"] = 1;
+    legacy["columnWidthRatios"] = QJsonArray({2, 1, 1});
+
+    // 目标视图：stretchLastSection 原本是关的，并且已经进了比例模式
+    // （于是记账里存着 false）。
+    xTableView target;
+    QStandardItemModel target_model(4, 3);
+    target.setSourceModel(&target_model);
+    target.resize(480, 320);
+    target.show();
+    ASSERT_TRUE(QTest::qWaitForWindowExposed(&target));
+    ASSERT_FALSE(target.horizontalHeader()->stretchLastSection());
+    target.setColumnWidthRatios({3, 1, 1});
+
+    target.restoreUiState(legacy);
+    ASSERT_FALSE(target.horizontalHeader()->stretchLastSection());  // 比例模式期间仍是关的
+
+    target.setColumnWidthRatios({});  // 退出比例模式，还原"调用方原本的值"
+
+    // 还原出来的必须是 v1 状态带进来的 true，而不是 restore 之前那个 false。
+    EXPECT_TRUE(target.horizontalHeader()->stretchLastSection());
 }
 
 // --- 7. UI 状态存取 ---------------------------------------------------------------

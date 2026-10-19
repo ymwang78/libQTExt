@@ -757,6 +757,9 @@ void xTableView::autoFitColumns(int sample_rows) {
 }
 
 void xTableView::setSourceModel(QAbstractItemModel *m) {
+    // 等宽可调模式要跟着视图模型的列数变化走，模型换了要重接信号。
+    QAbstractItemModel *oldViewModel = model();
+
     // 如果旧模型存在，先断开连接
     if (proxy_) {
         QAbstractItemModel *oldSourceModel = proxy_->sourceModel();
@@ -783,7 +786,25 @@ void xTableView::setSourceModel(QAbstractItemModel *m) {
                     }
                 });
     }
+    connectProportionalModelSignals(oldViewModel);
     syncFrozen();
+}
+
+// 接的是视图自己的模型（有代理时就是代理），因为列宽用的是视图的逻辑列号。
+void xTableView::connectProportionalModelSignals(QAbstractItemModel *old_view_model) {
+    QAbstractItemModel *view_model = model();
+    if (old_view_model == view_model) return;  // 有代理时模型对象不变，只接一次
+
+    if (old_view_model) {
+        disconnect(old_view_model, &QAbstractItemModel::columnsInserted, this, nullptr);
+        disconnect(old_view_model, &QAbstractItemModel::columnsRemoved, this, nullptr);
+    }
+    if (view_model) {
+        connect(view_model, &QAbstractItemModel::columnsInserted, this,
+                &xTableView::onProportionalColumnsInserted);
+        connect(view_model, &QAbstractItemModel::columnsRemoved, this,
+                &xTableView::onProportionalColumnsRemoved);
+    }
 }
 
 xTableView::NUMBER_DISPLAY_MODE xTableView::getNumberDisplayMode() const {
@@ -903,7 +924,15 @@ void xTableView::restoreUiState(const QJsonObject &state) {
     }
 
     if (hasHorizontalHeader && state.contains("horizontalHeaderState")) {
-        restoreHeaderStateFromString(horizontalHeader(), state.value("horizontalHeaderState"));
+        if (restoreHeaderStateFromString(horizontalHeader(),
+                                         state.value("horizontalHeaderState"))) {
+            // 表头的 state 里带着 stretchLastSection，恢复进来的是状态里那个值。
+            // 如果当前正处于比例 / 等宽可调模式，stretch_last_section_overridden_ 还是真，
+            // 下面的 updateStretchLastSectionForRatios() 就不会重新捕获，于是记着的还是
+            // restore 之前那个值 —— 以后退出模式时会还原成一个过期的设置。
+            // 这里把记账清掉，让它按刚恢复出来的值重新捕获。v2 的状态下面还会显式覆盖一次。
+            stretch_last_section_overridden_ = false;
+        }
     } else if (hasHorizontalHeader && state.value("columns").isArray()) {
         const QJsonArray columns = state.value("columns").toArray();
         for (const QJsonValue &value : columns) {
@@ -1050,6 +1079,64 @@ void xTableView::normalizeProportionalWeights() {
     for (double &weight : proportional_weights_) weight /= sum;
 }
 
+// 列是插在中间 / 从中间删掉的时候，逻辑列号会整段右移 / 左移，权重和手动标记必须跟着搬，
+// 否则它们就和列错位了 —— 原来某一列拖出来的宽度会跑到隔壁列身上。
+// syncProportionalWeights() 只看列数，只能处理"在末尾增删"，所以这里按位置单独处理。
+void xTableView::onProportionalColumnsInserted(const QModelIndex &parent, int first, int last) {
+    if (parent.isValid() || !is_proportional_columns_) return;
+
+    const int count = last - first + 1;
+    const int known = static_cast<int>(proportional_weights_.size());
+    if (count <= 0 || first < 0 || first > known || known == 0) {
+        // 权重还没建起来（模式刚打开、视口还没布局），交给 applyProportionalColumns() 里的 sync。
+        applyProportionalColumns();
+        return;
+    }
+
+    // 新列按已有列的平均权重插入：原来等宽的，插完还是等宽。
+    double sum = 0.0;
+    for (double weight : proportional_weights_) sum += weight;
+    const double share = sum / known;
+    proportional_weights_.insert(first, count, share);
+
+    QSet<int> shifted;
+    for (int col : proportional_manual_columns_) {
+        shifted.insert(col >= first ? col + count : col);
+    }
+    proportional_manual_columns_ = shifted;
+
+    normalizeProportionalWeights();
+    applyProportionalColumns();
+}
+
+void xTableView::onProportionalColumnsRemoved(const QModelIndex &parent, int first, int last) {
+    if (parent.isValid() || !is_proportional_columns_) return;
+
+    const int known = static_cast<int>(proportional_weights_.size());
+    const int count = last - first + 1;
+    if (count <= 0 || first < 0 || first >= known) {
+        applyProportionalColumns();
+        return;
+    }
+
+    const int removable = qMin(count, known - first);
+    proportional_weights_.remove(first, removable);
+
+    QSet<int> shifted;
+    for (int col : proportional_manual_columns_) {
+        if (col < first) {
+            shifted.insert(col);
+        } else if (col > last) {
+            shifted.insert(col - removable);
+        }
+        // first..last 这几列没了，它们的手动标记一起扔掉。
+    }
+    proportional_manual_columns_ = shifted;
+
+    normalizeProportionalWeights();
+    applyProportionalColumns();
+}
+
 void xTableView::syncProportionalWeights() {
     const int count = model() != nullptr ? model()->columnCount() : 0;
     const int known = static_cast<int>(proportional_weights_.size());
@@ -1123,14 +1210,39 @@ void xTableView::applyProportionalColumns() {
     updateFrozenGeometry();
 }
 
+void xTableView::scheduleProportionalReflow() {
+    if (!is_proportional_columns_ || proportional_reflow_pending_) return;
+
+    proportional_reflow_pending_ = true;
+    // 上下文对象传 this：视图先销毁时 Qt 会把这次回调取消掉。
+    QTimer::singleShot(0, this, [this]() {
+        proportional_reflow_pending_ = false;
+        applyProportionalColumns();
+    });
+}
+
 void xTableView::onProportionalSectionResized(int logical_index, int old_size, int new_size) {
     // applying_proportional_columns_ 为真说明这次宽度是本类自己设的，不是用户拖的。
     if (!is_proportional_columns_ || applying_proportional_columns_) return;
     if (logical_index < 0 || logical_index >= static_cast<int>(proportional_weights_.size())) {
         return;  // 列刚插进来、权重还没补齐，交给 applyProportionalColumns() 里的 sync
     }
-    if (new_size <= 0 || new_size == old_size) return;  // 隐藏 / 显示不算拖拽
-    if (isColumnHidden(logical_index)) return;
+    if (new_size == old_size) return;
+
+    // 隐藏 / 重新显示也走 sectionResized：实测 hide 是 (size -> 0)、unhide 是 (0 -> size)，
+    // QHeaderView 没有单独的可见性信号。两者都不是用户拖拽 ——
+    //  - 隐藏：不重排的话，隐藏掉的那一列会在表格里留下一块等宽的空白；
+    //  - 重新显示：按拖拽处理会把这一列错记成"手动列"，从此不再参与自动分配。
+    // 所以这里只重排，不动权重也不打手动标记（权重一直留着，列回来还是原来那份）。
+    //
+    // 重排必须延后一轮：隐藏时 QHeaderView 先把 section 宽度改成 0 并发出这个信号，
+    // 之后才把该列标成隐藏，所以此刻 isColumnHidden() 还是 false，立刻重排会把这一列
+    // 当成可见列照样分给它宽度，隐藏生效后就留下一块空白（实测 460 的视口只铺了 345）。
+    // 延后一轮也顺带把"显示所有列"那种连续操作合并成一次重排。
+    if (new_size <= 0 || old_size <= 0 || isColumnHidden(logical_index)) {
+        scheduleProportionalReflow();
+        return;
+    }
 
     const int total = viewport()->width();
     if (total <= 0) return;
