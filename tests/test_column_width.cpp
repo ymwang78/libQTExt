@@ -26,6 +26,7 @@
 #include <QTest>
 
 #include <memory>
+#include <cmath>
 
 namespace {
 
@@ -74,6 +75,31 @@ class ColumnWidth : public ::testing::Test {
             widths.append(view_->columnWidth(col));
         }
         return widths;
+    }
+
+    int viewportWidth() const { return view_->viewport()->width(); }
+
+    int totalColumnWidth() const {
+        int total = 0;
+        for (int width : columnWidths()) total += width;
+        return total;
+    }
+
+    // 某列占视口的比例。等宽可调模式的断言都盯着比例，不是像素值。
+    double columnShare(int col) const {
+        return static_cast<double>(view_->columnWidth(col)) / viewportWidth();
+    }
+
+    // 模拟用户拖表头分隔条：从外部调 resizeSection，走的信号路径和用户拖拽一样
+    // （本类自己改列宽时会先置守卫位，sectionResized 槽里据此区分）。
+    void dragColumnTo(int col, int width) {
+        header()->resizeSection(col, width);
+        QCoreApplication::processEvents();
+    }
+
+    void resizeViewTo(int width, int height = 320) {
+        view_->resize(width, height);
+        QCoreApplication::processEvents();
     }
 
     std::unique_ptr<QStandardItemModel> model_;
@@ -320,6 +346,364 @@ TEST_F(ColumnWidth, RestoreUiStateIgnoresFutureVersions) {
     view_->restoreUiState(future);
 
     EXPECT_TRUE(header()->stretchLastSection());
+}
+
+// --- 5. 等宽可调（setProportionalColumns）-------------------------------------------------
+//
+// 语义：表头保持 Interactive（用户能拖），列宽初值是视口等分，resize 时按各列
+// 当前宽度的比例缩放，所以用户拖出来的比例不会被自动逻辑覆盖，视口也不留白。
+
+TEST_F(ColumnWidth, ProportionalColumnsStartOutEqualAndFillViewport) {
+    setUpView(6, 4, 480, 320);
+
+    view_->setProportionalColumns(true);
+    QCoreApplication::processEvents();
+
+    EXPECT_TRUE(view_->isProportionalColumns());
+    EXPECT_EQ(totalColumnWidth(), viewportWidth());
+    for (int col = 0; col < 4; ++col) {
+        EXPECT_NEAR(view_->columnWidth(col), viewportWidth() / 4, 1) << "col " << col;
+    }
+}
+
+TEST_F(ColumnWidth, ProportionalColumnsKeepColumnsDraggable) {
+    setUpView(6, 4, 480, 320);
+
+    view_->setProportionalColumns(true);
+    QCoreApplication::processEvents();
+
+    // 不能用 QHeaderView::Stretch：那下面用户拖不动，setColumnWidth 也静默无效。
+    EXPECT_EQ(header()->sectionResizeMode(0), QHeaderView::Interactive);
+    dragColumnTo(0, 240);
+    EXPECT_NEAR(view_->columnWidth(0), 240, 2);
+}
+
+TEST_F(ColumnWidth, ProportionalColumnsTurnOffStretchLastSection) {
+    setUpView(4, 3);
+    header()->setStretchLastSection(true);
+
+    view_->setProportionalColumns(true);
+
+    // 这个模式自己把列宽铺满视口，stretchLastSection 只会把末列拉变形。
+    EXPECT_FALSE(header()->stretchLastSection());
+}
+
+TEST_F(ColumnWidth, LeavingProportionalColumnsRestoresStretchLastSection) {
+    setUpView(4, 3);
+    header()->setStretchLastSection(true);
+    view_->setProportionalColumns(true);
+    ASSERT_FALSE(header()->stretchLastSection());
+
+    view_->setProportionalColumns(false);
+
+    EXPECT_TRUE(header()->stretchLastSection());
+}
+
+TEST_F(ColumnWidth, ProportionalColumnsRefillViewportAfterResize) {
+    setUpView(6, 4, 480, 320);
+    view_->setProportionalColumns(true);
+    QCoreApplication::processEvents();
+
+    // 903 除不尽 4：逐列各自取整会每列差一点，总宽就铺不满视口。
+    resizeViewTo(903);
+
+    EXPECT_EQ(totalColumnWidth(), viewportWidth());
+    for (int col = 0; col < 4; ++col) {
+        EXPECT_NEAR(view_->columnWidth(col), viewportWidth() / 4, 1) << "col " << col;
+    }
+}
+
+TEST_F(ColumnWidth, ProportionalColumnsKeepUserProportionsAcrossResize) {
+    setUpView(6, 3, 480, 320);
+    view_->setProportionalColumns(true);
+    QCoreApplication::processEvents();
+
+    dragColumnTo(0, viewportWidth() / 2);  // 用户把第一列拖到半个视口
+    const double share_before = columnShare(0);
+    ASSERT_NEAR(share_before, 0.5, 0.02);
+
+    resizeViewTo(900);
+
+    // 固定比例模式的做法是每次 resize 都按设定值重算，用户拖的那下就没了；
+    // 这个模式按"当前比例"缩放，所以 1/2 还是 1/2。
+    EXPECT_NEAR(columnShare(0), share_before, 0.01);
+    EXPECT_EQ(totalColumnWidth(), viewportWidth());
+}
+
+TEST_F(ColumnWidth, ProportionalColumnsDoNotDriftAcrossRepeatedResizes) {
+    setUpView(6, 5, 480, 320);
+    view_->setProportionalColumns(true);
+    QCoreApplication::processEvents();
+
+    dragColumnTo(0, viewportWidth() * 3 / 5);
+    const double share_before = columnShare(0);
+    ASSERT_NEAR(share_before, 0.6, 0.02);
+
+    // 比例必须存 double：每次 resize 都从整数宽度反推比例的写法，整除误差会一次次
+    // 累积（窄列每次少一两个像素，占比就慢慢往宽列跑），来回缩几十次就看得出来。
+    for (int pass = 0; pass < 40; ++pass) {
+        resizeViewTo(pass % 2 == 0 ? 907 : 503);
+    }
+    resizeViewTo(480);
+
+    EXPECT_NEAR(columnShare(0), share_before, 0.005);
+    EXPECT_EQ(totalColumnWidth(), viewportWidth());
+}
+
+TEST_F(ColumnWidth, ProportionalColumnsKeepManuallySizedColumnWhenAnotherIsDragged) {
+    setUpView(6, 4, 480, 320);
+    view_->setProportionalColumns(true);
+    QCoreApplication::processEvents();
+    const int total = viewportWidth();
+
+    dragColumnTo(0, total / 2);
+    const int manual_width = view_->columnWidth(0);
+    ASSERT_NEAR(manual_width, total / 2, 2);
+
+    dragColumnTo(1, total / 4);
+
+    // 第 0 列是用户亲手拖过的，差额只能从没拖过的列（2、3）身上出。
+    EXPECT_NEAR(view_->columnWidth(0), manual_width, 2);
+    EXPECT_NEAR(view_->columnWidth(1), total / 4, 2);
+    EXPECT_EQ(totalColumnWidth(), total);
+}
+
+TEST_F(ColumnWidth, ProportionalColumnsShareViewportWithColumnsAddedLater) {
+    setUpView(6, 3, 480, 320);
+    view_->setProportionalColumns(true);
+    QCoreApplication::processEvents();
+
+    model_->insertColumn(3);
+    resizeViewTo(900);
+
+    EXPECT_EQ(totalColumnWidth(), viewportWidth());
+    for (int col = 0; col < 4; ++col) {
+        EXPECT_NEAR(view_->columnWidth(col), viewportWidth() / 4, 1) << "col " << col;
+    }
+
+    model_->removeColumn(3);
+    resizeViewTo(640);
+
+    EXPECT_EQ(totalColumnWidth(), viewportWidth());
+    for (int col = 0; col < 3; ++col) {
+        EXPECT_NEAR(view_->columnWidth(col), viewportWidth() / 3, 1) << "col " << col;
+    }
+}
+
+// --- 6. 三种列宽模式互斐 ---------------------------------------------------------
+
+TEST_F(ColumnWidth, StretchToFillTakesOverFromProportionalColumns) {
+    setUpView(6, 3, 480, 320);
+    view_->setProportionalColumns(true);
+    QCoreApplication::processEvents();
+
+    view_->setStretchToFill(true);
+
+    EXPECT_FALSE(view_->isProportionalColumns());
+    EXPECT_EQ(header()->sectionResizeMode(0), QHeaderView::Stretch);
+}
+
+TEST_F(ColumnWidth, ProportionalColumnsTakeOverFromStretchToFill) {
+    setUpView(6, 3, 480, 320);
+    view_->setStretchToFill(true);
+    QCoreApplication::processEvents();
+
+    view_->setProportionalColumns(true);
+    QCoreApplication::processEvents();
+
+    EXPECT_EQ(header()->sectionResizeMode(0), QHeaderView::Interactive);
+    EXPECT_EQ(totalColumnWidth(), viewportWidth());
+    dragColumnTo(0, 240);
+    EXPECT_NEAR(view_->columnWidth(0), 240, 2);
+}
+
+TEST_F(ColumnWidth, ProportionalColumnsTakeOverFromColumnWidthRatios) {
+    setUpView(6, 3, 480, 320);
+    view_->setColumnWidthRatios({6, 1, 1});
+    QCoreApplication::processEvents();
+
+    view_->setProportionalColumns(true);
+    resizeViewTo(900);
+
+    // 比例被清了：如果还在，resizeEvent 会把列宽压回 6:1:1。
+    EXPECT_NEAR(view_->columnWidth(0), view_->columnWidth(1), 2);
+    EXPECT_NEAR(view_->columnWidth(0), viewportWidth() / 3, 2);
+    EXPECT_EQ(totalColumnWidth(), viewportWidth());
+    EXPECT_TRUE(view_->saveUiState().value("columnWidthRatios").toArray().isEmpty());
+
+    // 是清掉，不是盖住：再关掉这个模式，老的 6:1:1 也不该再冒出来。
+    const int equal_width = view_->columnWidth(0);
+    view_->setProportionalColumns(false);
+    resizeViewTo(700);
+
+    EXPECT_NEAR(view_->columnWidth(0), equal_width, 2);
+    EXPECT_NEAR(view_->columnWidth(1), equal_width, 2);
+}
+
+TEST_F(ColumnWidth, ProportionalColumnsClearStretchToFillInUiState) {
+    setUpView(6, 3, 480, 320);
+    view_->setStretchToFill(true);
+
+    view_->setProportionalColumns(true);
+    QCoreApplication::processEvents();
+
+    const QJsonObject state = view_->saveUiState();
+    EXPECT_TRUE(state.value("proportionalColumns").toBool());
+    // 三种模式互斐，状态里不能同时写着两个：restore 时的
+    // setStretchToFill(true) 会把等宽可调模式又顶掉。
+    EXPECT_FALSE(state.value("stretchToFill").toBool());
+}
+
+TEST_F(ColumnWidth, ColumnWidthRatiosTakeOverFromProportionalColumns) {
+    setUpView(6, 3, 480, 320);
+    view_->setProportionalColumns(true);
+    QCoreApplication::processEvents();
+    dragColumnTo(0, viewportWidth() / 2);
+    ASSERT_NEAR(columnShare(0), 0.5, 0.02);
+
+    view_->setColumnWidthRatios({1, 1, 1});
+    resizeViewTo(900);
+
+    EXPECT_FALSE(view_->isProportionalColumns());
+    // 比例模式说了算：用户拖出来的 1/2 不再生效。
+    EXPECT_NEAR(view_->columnWidth(0), view_->columnWidth(1), 2);
+}
+
+TEST_F(ColumnWidth, ClearingColumnWidthRatiosKeepsProportionalColumnsOn) {
+    setUpView(6, 3, 480, 320);
+    view_->setProportionalColumns(true);
+    QCoreApplication::processEvents();
+
+    // setColumnWidthRatios({}) 只是清比例，不该顺手把另一个模式也关掉。
+    view_->setColumnWidthRatios({});
+    resizeViewTo(900);
+
+    EXPECT_TRUE(view_->isProportionalColumns());
+    EXPECT_EQ(totalColumnWidth(), viewportWidth());
+}
+
+TEST_F(ColumnWidth, AutoFitColumnsIsNoOpInProportionalColumnsMode) {
+    setUpView(6, 3, 480, 320);
+    view_->setProportionalColumns(true);
+    QCoreApplication::processEvents();
+    model_->setData(model_->index(0, 1),
+                    QStringLiteral("一个明显比表头和其它单元格都长得多的内容字符串"));
+    const QList<int> before = columnWidths();
+
+    view_->autoFitColumns();
+
+    // 量宽走的也是 setColumnWidth，在这个模式下会被当成用户拖拽，
+    // 把每一列都打上手动标记，所以这里什么都不做。
+    EXPECT_EQ(columnWidths(), before);
+}
+
+// --- 7. UI 状态存取 ---------------------------------------------------------------
+
+TEST_F(ColumnWidth, SaveUiStateKeepsProportionalColumnWeightsAsDoubles) {
+    setUpView(6, 3, 480, 320);
+    view_->setProportionalColumns(true);
+    QCoreApplication::processEvents();
+    dragColumnTo(0, viewportWidth() / 2);
+
+    const QJsonObject state = view_->saveUiState();
+
+    // 新字段都是可选的，版本号留在 2：升到 3 会被老代码的 version > 2 整份丢掉。
+    EXPECT_EQ(state.value("version").toInt(), 2);
+    EXPECT_TRUE(state.value("proportionalColumns").toBool());
+
+    const QJsonArray weights = state.value("proportionalColumnWeights").toArray();
+    ASSERT_EQ(weights.size(), 3);
+    EXPECT_NEAR(weights.at(0).toDouble(), 0.5, 0.02);
+    // 存的必须是 double 比例，不是取整过的像素宽度。
+    EXPECT_LT(weights.at(0).toDouble(), 1.0);
+    EXPECT_NE(weights.at(1).toDouble(), std::floor(weights.at(1).toDouble()));
+
+    const QJsonArray manual = state.value("proportionalManualColumns").toArray();
+    ASSERT_EQ(manual.size(), 1);
+    EXPECT_EQ(manual.at(0).toInt(), 0);
+}
+
+TEST_F(ColumnWidth, RestoreUiStateReappliesProportionalColumns) {
+    setUpView(6, 3, 480, 320);
+    view_->setProportionalColumns(true);
+    QCoreApplication::processEvents();
+    dragColumnTo(0, viewportWidth() / 2);
+    const QJsonObject state = view_->saveUiState();
+
+    xTableView target;
+    QStandardItemModel target_model(6, 3);
+    target.setSourceModel(&target_model);
+    target.resize(900, 320);
+    target.show();
+    ASSERT_TRUE(QTest::qWaitForWindowExposed(&target));
+
+    target.restoreUiState(state);
+    QCoreApplication::processEvents();
+
+    EXPECT_TRUE(target.isProportionalColumns());
+    EXPECT_EQ(target.horizontalHeader()->sectionResizeMode(0), QHeaderView::Interactive);
+    EXPECT_FALSE(target.horizontalHeader()->stretchLastSection());
+    // 存下来的是比例，换了一个更宽的表也该是半个视口。
+    EXPECT_NEAR(static_cast<double>(target.columnWidth(0)) / target.viewport()->width(), 0.5,
+                0.02);
+    int total = 0;
+    for (int col = 0; col < 3; ++col) total += target.columnWidth(col);
+    EXPECT_EQ(total, target.viewport()->width());
+}
+
+TEST_F(ColumnWidth, RestoreUiStateKeepsProportionalManualColumns) {
+    setUpView(6, 3, 480, 320);
+    view_->setProportionalColumns(true);
+    QCoreApplication::processEvents();
+    dragColumnTo(0, viewportWidth() / 2);
+    const QJsonObject state = view_->saveUiState();
+
+    xTableView target;
+    QStandardItemModel target_model(6, 3);
+    target.setSourceModel(&target_model);
+    target.resize(900, 320);
+    target.show();
+    ASSERT_TRUE(QTest::qWaitForWindowExposed(&target));
+    target.restoreUiState(state);
+    QCoreApplication::processEvents();
+    const int restored = target.columnWidth(0);
+
+    // 手动标记也跟着恢复了的话，再拖别的列时第 0 列不当"吸收差额"的角色。
+    target.horizontalHeader()->resizeSection(1, 100);
+    QCoreApplication::processEvents();
+
+    EXPECT_NEAR(target.columnWidth(0), restored, 2);
+    EXPECT_NEAR(target.columnWidth(1), 100, 2);
+}
+
+TEST_F(ColumnWidth, RestoreUiStateTurnsProportionalColumnsOffWhenStateHasNone) {
+    setUpView(6, 3, 480, 320);
+    const QJsonObject state = view_->saveUiState();  // 默认模式存下来的状态
+    ASSERT_FALSE(state.value("proportionalColumns").toBool());
+
+    view_->setProportionalColumns(true);
+    QCoreApplication::processEvents();
+    ASSERT_TRUE(view_->isProportionalColumns());
+
+    view_->restoreUiState(state);
+
+    EXPECT_FALSE(view_->isProportionalColumns());
+}
+
+TEST_F(ColumnWidth, RestoreUiStateFromVersionOneLeavesProportionalColumnsAlone) {
+    setUpView(6, 3, 480, 320);
+    view_->setProportionalColumns(true);
+    QCoreApplication::processEvents();
+
+    QJsonObject legacy;
+    legacy["version"] = 1;
+    legacy["freezeColumns"] = 0;
+    view_->restoreUiState(legacy);
+    resizeViewTo(900);
+
+    // v1 的状态里没有这个字段，和 stretchLastSection 一样：不碰当前模式。
+    EXPECT_TRUE(view_->isProportionalColumns());
+    EXPECT_EQ(totalColumnWidth(), viewportWidth());
 }
 
 }  // namespace

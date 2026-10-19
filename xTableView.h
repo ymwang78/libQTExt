@@ -173,6 +173,15 @@ class xTableView : public QTableView {
     // 比例模式期间 stretchLastSection 被强制关掉，这里记住调用方原本的设置，退出时还原。
     bool stretch_last_section_saved_ = false;
     bool stretch_last_section_overridden_ = false;
+    // 等宽可调模式（setProportionalColumns）：表头保持 Interactive，列宽按权重铺满视口。
+    // 权重必须是 double —— 每次 resize 都从权重算宽度，而不是从取整后的宽度反推权重，
+    // 否则整除误差一次次累积，反复缩放窗口后比例就漂了。
+    bool is_proportional_columns_ = false;
+    QVector<double> proportional_weights_;
+    // 用户亲手拖过的列：自动逻辑（吸收别人拖出来的差额）不再碰它们。
+    QSet<int> proportional_manual_columns_;
+    // 自己 setColumnWidth 期间置位，用来在 sectionResized 里区分程序设置与用户拖拽。
+    bool applying_proportional_columns_ = false;
     QSet<int> bool_columns_;
     QMap<int, QVector<bool>> bool_column_memory_states_;
     xCheckableHeaderView *checkable_header_;
@@ -193,9 +202,19 @@ class xTableView : public QTableView {
 
     void setColumnWidthRatios(const QList<int> &ratios);
 
+    // 等宽可调：表头保持 QHeaderView::Interactive（用户能拖），列宽初值为视口等分，
+    // 之后窗口变化时按各列当前宽度的比例缩放 —— 既始终铺满视口，又不丢用户拖出来的比例。
+    // 用户拖过的列会被记成"手动列"，别的列再被拖时不去动它们的宽度。
+    // 与 setStretchToFill() / setColumnWidthRatios() 三者互斥，打开这个会关掉那两个。
+    // 重复 setProportionalColumns(true) 不动已有布局；想回到等宽初值就先关再开。
+    void setProportionalColumns(bool enabled);
+
+    inline bool isProportionalColumns() const { return is_proportional_columns_; }
+
     // 按内容量一次列宽，之后用户仍可拖拽。
     // 必须在模型填完数据后调用：构造时模型还是空的，量出来只有表头文字的宽度。
-    // setStretchToFill(true) 或设过列宽比例时列宽由本类接管，此函数不做任何事。
+    // setStretchToFill(true) / setProportionalColumns(true) / 设过列宽比例时
+    // 列宽由本类接管，此函数不做任何事。
     // sample_rows 限制参与计算的行数（<= 0 表示用表头当前的 resizeContentsPrecision）。
     void autoFitColumns(int sample_rows = 64);
 
@@ -295,8 +314,21 @@ class xTableView : public QTableView {
 
     void applyColumnWidthRatios();
 
-    // 按当前是否处于比例模式，关掉 / 还原 stretchLastSection。
+    // 按当前是否处于自己铺满视口的模式（固定比例 / 等宽可调），
+    // 关掉 / 还原 stretchLastSection。
     void updateStretchLastSectionForRatios();
+
+    // 把权重铺到视口上（带重入守卫），顺带在列数变化后补齐权重。
+    void applyProportionalColumns();
+
+    // 列数变了之后补齐 / 截断权重，并重新归一化。
+    void syncProportionalWeights();
+
+    // 让权重之和回到 1，这样"权重 == 占视口的比例"一直成立。
+    void normalizeProportionalWeights();
+
+    // horizontalHeader() 的 sectionResized 槽：只有用户拖拽才更新权重并打手动标记。
+    void onProportionalSectionResized(int logical_index, int old_size, int new_size);
 
     void updateBoolColumnHeaderState(int column);
 

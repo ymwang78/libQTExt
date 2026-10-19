@@ -37,6 +37,8 @@
 #include <QJsonObject>
 #include <QTimer>
 #include <algorithm>
+#include <QScopedValueRollback>
+#include <cmath>
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -511,6 +513,31 @@ static QList<int> jsonArrayToIntList(const QJsonValue &value) {
     return values;
 }
 
+static QJsonArray doubleVectorToJsonArray(const QVector<double> &values) {
+    QJsonArray array;
+    for (double value : values) {
+        array.append(value);
+    }
+    return array;
+}
+
+// 列宽权重：任何一项不是正的有限数，整份列表就作废（回到等宽初值），
+// 免得一个坏值把整张表的列宽算成 0 或者 nan。
+static QVector<double> jsonArrayToDoubleVector(const QJsonValue &value) {
+    QVector<double> values;
+    if (!value.isArray()) return values;
+
+    const QJsonArray array = value.toArray();
+    values.reserve(array.size());
+    for (const QJsonValue &item : array) {
+        if (!item.isDouble()) return QVector<double>();
+        const double weight = item.toDouble(-1.0);
+        if (!std::isfinite(weight) || weight <= 0.0) return QVector<double>();
+        values.append(weight);
+    }
+    return values;
+}
+
 static QString headerStateToString(const QHeaderView *header) {
     if (!header) return {};
     return QString::fromLatin1(header->saveState().toBase64());
@@ -581,6 +608,10 @@ xTableView::xTableView(QWidget *parent, bool is_column_sortable)
     connect(horizontalHeader(), &QHeaderView::customContextMenuRequested, this,
             &xTableView::showHeaderMenu);
 
+    // 等宽可调模式靠这个信号区分"用户拖的"和"程序设的"，槽里自己判断模式是否打开。
+    connect(horizontalHeader(), &QHeaderView::sectionResized, this,
+            &xTableView::onProportionalSectionResized);
+
     connect(horizontalScrollBar(), &QScrollBar::rangeChanged, this,
             &xTableView::updateFrozenGeometry);
     connect(verticalScrollBar(), &QScrollBar::rangeChanged, this,
@@ -626,6 +657,12 @@ zce::Any xTableView::getItemAny(int row, int col) const {
 void xTableView::setStretchToFill(bool enabled) {
     is_stretch_to_fill_ = enabled;
     if (is_stretch_to_fill_) {
+        // 互斥：Stretch 下 setColumnWidth 静默无效，等宽可调模式在这里没法工作。
+        // 只在打开时接管；setStretchToFill(false) 不去动另一个模式（setColumnWidthRatios()
+        // 内部就会调它一次）。
+        is_proportional_columns_ = false;
+        proportional_weights_.clear();
+        proportional_manual_columns_.clear();
         // 设置拉伸模式，所有列将平分可用空间
         horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     } else {
@@ -637,15 +674,49 @@ void xTableView::setStretchToFill(bool enabled) {
 
 void xTableView::setColumnWidthRatios(const QList<int> &ratios) {
     column_width_ratios_ = ratios;
+    // 互斥：真的设了比例才接管列宽；setColumnWidthRatios({}) 只是清掉比例，
+    // 不该顺手把另一个模式也关掉。
+    if (!ratios.isEmpty()) {
+        is_proportional_columns_ = false;
+        proportional_weights_.clear();
+        proportional_manual_columns_.clear();
+    }
     setStretchToFill(false);  // 内含 updateStretchLastSectionForRatios()
     applyColumnWidthRatios();
+}
+
+void xTableView::setProportionalColumns(bool enabled) {
+    // 幂等：重复打开不重置用户已经拖出来的布局（想回等宽初值就先关再开）。
+    if (is_proportional_columns_ == enabled) return;
+
+    if (enabled) {
+        // 互斥：等宽平分和固定比例都让位。
+        is_stretch_to_fill_ = false;
+        column_width_ratios_.clear();
+    }
+    is_proportional_columns_ = enabled;
+    proportional_weights_.clear();
+    proportional_manual_columns_.clear();
+
+    QHeaderView *header = horizontalHeader();
+    if (enabled && header != nullptr) {
+        // 用户必须能拖，所以是 Interactive 而不是 Stretch。
+        header->setSectionResizeMode(QHeaderView::Interactive);
+    }
+
+    // 这个模式也自己把列宽铺满视口，stretchLastSection 同样该让位，退出时还原。
+    updateStretchLastSectionForRatios();
+
+    if (enabled) applyProportionalColumns();
 }
 
 void xTableView::updateStretchLastSectionForRatios() {
     QHeaderView *header = horizontalHeader();
     if (!header) return;
 
-    const bool ratios_active = !is_stretch_to_fill_ && !column_width_ratios_.isEmpty();
+    // 比例模式和等宽可调模式都自己把列宽铺满视口，stretchLastSection 对两者都是干扰。
+    const bool ratios_active = is_proportional_columns_ ||
+                               (!is_stretch_to_fill_ && !column_width_ratios_.isEmpty());
     if (ratios_active) {
         // 比例算出来的总宽没铺满视口时（比例列表比列数长就会这样，而且很常见：
         // setColumnWidthRatios() 多半在模型填数据之前就调了），stretchLastSection 会把末列
@@ -663,8 +734,10 @@ void xTableView::updateStretchLastSectionForRatios() {
 }
 
 void xTableView::autoFitColumns(int sample_rows) {
-    // 列宽由本类接管时（等宽平分 / 比例），按内容量宽会被下一次重算覆盖，直接不做。
-    if (is_stretch_to_fill_ || !column_width_ratios_.isEmpty()) return;
+    // 列宽由本类接管时（等宽平分 / 固定比例 / 等宽可调），按内容量宽会被下一次重算覆盖，
+    // 直接不做。等宽可调模式下尤其不能做：量宽走的也是 setColumnWidth，会被
+    // onProportionalSectionResized() 当成用户拖拽，把每一列都打上手动标记。
+    if (is_stretch_to_fill_ || is_proportional_columns_ || !column_width_ratios_.isEmpty()) return;
 
     QHeaderView *header = horizontalHeader();
     if (!header) return;
@@ -767,6 +840,11 @@ QJsonObject xTableView::saveUiState() const {
     state["freezeRows"] = freeze_rows_;
     state["stretchToFill"] = is_stretch_to_fill_;
     state["columnWidthRatios"] = intListToJsonArray(column_width_ratios_);
+    // 等宽可调模式：版本号仍留在 2。这里加的都是可选字段，老代码读新状态时不认就跳过；
+    // 升到 3 反而会被老代码的 version > 2 整份丢掉。权重存 double 原值，不存整数宽度。
+    state["proportionalColumns"] = is_proportional_columns_;
+    state["proportionalColumnWeights"] = doubleVectorToJsonArray(proportional_weights_);
+    state["proportionalManualColumns"] = intSetToJsonArray(proportional_manual_columns_);
     state["boolColumns"] = intSetToJsonArray(bool_columns_);
     state["stretchLastSection"] =
         stretch_last_section_overridden_
@@ -882,6 +960,28 @@ void xTableView::restoreUiState(const QJsonObject &state) {
 
     if (hasColumnWidthRatios) applyColumnWidthRatios();
 
+    // 等宽可调模式放在最后：三种列宽模式互斥，状态里记下的那个说了算。
+    if (state.contains("proportionalColumns")) {
+        if (!state.value("proportionalColumns").toBool(false)) {
+            setProportionalColumns(false);
+        } else {
+            setProportionalColumns(true);  // 互斥 + Interactive + stretchLastSection 一套
+            const QVector<double> weights =
+                jsonArrayToDoubleVector(state.value("proportionalColumnWeights"));
+            if (!weights.isEmpty()) {
+                // 存下来的是用户拖出来的比例，连手动标记一起恢复，别被等宽初值盖掉。
+                proportional_weights_ = weights;
+                normalizeProportionalWeights();
+                proportional_manual_columns_.clear();
+                const int count = static_cast<int>(proportional_weights_.size());
+                for (int col : jsonArrayToIntList(state.value("proportionalManualColumns"))) {
+                    if (col >= 0 && col < count) proportional_manual_columns_.insert(col);
+                }
+                applyProportionalColumns();
+            }
+        }
+    }
+
     if (state.contains("freezeColumns")) {
         freezeLeftColumns(state.value("freezeColumns").toInt());
     }
@@ -940,6 +1040,139 @@ void xTableView::applyColumnWidthRatios() {
     }
 
     updateFrozenGeometry();
+}
+
+void xTableView::normalizeProportionalWeights() {
+    double sum = 0.0;
+    for (double weight : proportional_weights_) sum += weight;
+    if (sum <= 0.0) return;
+
+    for (double &weight : proportional_weights_) weight /= sum;
+}
+
+void xTableView::syncProportionalWeights() {
+    const int count = model() != nullptr ? model()->columnCount() : 0;
+    const int known = static_cast<int>(proportional_weights_.size());
+    if (count == known) return;
+
+    if (count < known) {
+        proportional_weights_.resize(count);
+        // 没了的列的手动标记也要扔掉，否则列数长回来时新列会被当成用户拖过的。
+        for (auto it = proportional_manual_columns_.begin();
+             it != proportional_manual_columns_.end();) {
+            if (*it >= count) {
+                it = proportional_manual_columns_.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    } else {
+        // 新列按已有列的平均权重补：原来等宽的，补完还是等宽。归一化会把所有列（含手动列）
+        // 按比例压回总和 1 —— 多出来的列总得从别人那里分走宽度，但各列的相对比例不变。
+        double sum = 0.0;
+        for (double weight : proportional_weights_) sum += weight;
+        const double share = known > 0 ? sum / known : 1.0 / count;
+        for (int i = known; i < count; ++i) proportional_weights_.append(share);
+    }
+
+    normalizeProportionalWeights();
+}
+
+void xTableView::applyProportionalColumns() {
+    // 守卫同时拦住重入：自己 setColumnWidth 引出来的 sectionResized 不该再算一遍。
+    if (!is_proportional_columns_ || applying_proportional_columns_) return;
+
+    syncProportionalWeights();
+
+    const int count = static_cast<int>(proportional_weights_.size());
+    if (count <= 0) return;
+
+    // 隐藏列不占视口宽度，算进去会留白边；它们的权重先存着，重新显示时还在。
+    QVector<int> visible;
+    visible.reserve(count);
+    double sum = 0.0;
+    for (int i = 0; i < count; ++i) {
+        if (isColumnHidden(i)) continue;
+        visible.append(i);
+        sum += proportional_weights_[i];
+    }
+    if (visible.isEmpty() || sum <= 0.0) return;
+
+    const int total = viewport()->width();
+    if (total <= 0) return;  // 还没布局出来，等第一次 resizeEvent
+
+    const QHeaderView *header = horizontalHeader();
+    const int minimum = header != nullptr ? header->minimumSectionSize() : 0;
+
+    // 宽度由"权重累加值"取整后差分得出，而不是逐列各自取整：这样截断误差不会累加，
+    // 最后一列直接吃掉余数，总宽正好等于视口宽度 —— 不留白也不多出滚动条。
+    const QScopedValueRollback<bool> guard(applying_proportional_columns_, true);
+    double accumulated = 0.0;
+    int placed = 0;
+    for (int i = 0; i < visible.size(); ++i) {
+        accumulated += proportional_weights_[visible[i]];
+        const int edge = (i + 1 == visible.size())
+                             ? total
+                             : static_cast<int>(std::llround(accumulated / sum * total));
+        // 夹到 minimumSectionSize 之后 placed 按实际宽度累加，后面的列自己吸收这点偏差。
+        const int width = qMax(edge - placed, minimum);
+        setColumnWidth(visible[i], width);
+        placed += width;
+    }
+
+    updateFrozenGeometry();
+}
+
+void xTableView::onProportionalSectionResized(int logical_index, int old_size, int new_size) {
+    // applying_proportional_columns_ 为真说明这次宽度是本类自己设的，不是用户拖的。
+    if (!is_proportional_columns_ || applying_proportional_columns_) return;
+    if (logical_index < 0 || logical_index >= static_cast<int>(proportional_weights_.size())) {
+        return;  // 列刚插进来、权重还没补齐，交给 applyProportionalColumns() 里的 sync
+    }
+    if (new_size <= 0 || new_size == old_size) return;  // 隐藏 / 显示不算拖拽
+    if (isColumnHidden(logical_index)) return;
+
+    const int total = viewport()->width();
+    if (total <= 0) return;
+
+    double visible_sum = 0.0;
+    double held = 0.0;       // 其它手动列的权重，一分不动
+    double absorbers = 0.0;  // 用户没拖过的列，差额从它们身上出
+    const int count = static_cast<int>(proportional_weights_.size());
+    for (int i = 0; i < count; ++i) {
+        if (isColumnHidden(i)) continue;
+        visible_sum += proportional_weights_[i];
+        if (i == logical_index) continue;
+        if (proportional_manual_columns_.contains(i)) {
+            held += proportional_weights_[i];
+        } else {
+            absorbers += proportional_weights_[i];
+        }
+    }
+    if (visible_sum <= 0.0) return;
+
+    // 整数宽度 -> 权重 只在这里发生，而且只在用户动手时发生一次。每次 resize 都反推一遍
+    // 才会累积整除误差，那样反复缩放窗口比例就漂了。
+    proportional_manual_columns_.insert(logical_index);
+    const double dragged = static_cast<double>(new_size) / total * visible_sum;
+    const double room = visible_sum - dragged - held;
+
+    if (absorbers > 0.0 && room > 0.0) {
+        // 差额只从"用户没拖过的列"里出：拖过的列是用户的意思，自动逻辑不去动它。
+        const double scale = room / absorbers;
+        for (int i = 0; i < count; ++i) {
+            if (i == logical_index || isColumnHidden(i)) continue;
+            if (!proportional_manual_columns_.contains(i)) proportional_weights_[i] *= scale;
+        }
+        proportional_weights_[logical_index] = dragged;
+    } else {
+        // 没有能吸收差额的列（别的列全被拖过，或者手动列已经占满视口）：只记下这一列，
+        // 再把所有列按比例压回总和 1。这一下可能铺不满 / 溢出，下一次 resize 会重新铺满。
+        proportional_weights_[logical_index] = dragged;
+        normalizeProportionalWeights();
+    }
+
+    applyProportionalColumns();
 }
 
 void xTableView::setColumnFilter(int col, const QVariantMap &cond) {
@@ -1037,7 +1270,9 @@ void xTableView::resizeEvent(QResizeEvent *e) {
     // 比例模式以前走 else 分支整个跳过了它，视口变化后会留下过期的滚动条状态。
     // 必须先调基类，再按比例改列宽（列宽变化自己会触发表头的 sectionResized）。
     QTableView::resizeEvent(e);
-    if (!is_stretch_to_fill_ && !column_width_ratios_.isEmpty()) {
+    if (is_proportional_columns_) {
+        applyProportionalColumns();
+    } else if (!is_stretch_to_fill_ && !column_width_ratios_.isEmpty()) {
         applyColumnWidthRatios();
     }
     updateFrozenGeometry();
