@@ -9,7 +9,8 @@
 //     字段宽度，而小数点后不跟数字等于精度 0，于是不管要几位，12.3456789 一律打成
 //     "+1e+01"（只有一位有效数字）。位数要写在小数点后面。
 //  2. MODE_FIXFLOAT 按小数位数走，MODE_GENERAL 按有效数字走，精度给 0 时各自回落到缺省。
-//  3. 科学计数法始终带符号，指数至少两位。
+//  3. 科学计数法始终带符号，指数至少两位，并且位数要几位给几位 —— 不像另外两档把精度
+//     交给 QLocale，这一档自己管缓冲区，位数一大就有被 snprintf 悄悄截断的风险。
 //  4. 非浮点类型不受模式影响。
 //  5. setNumberDisplayMode() 只在值真的变了时发 numberDisplayChanged（调用方拿它触发
 //     UI 状态落盘），saveUiState()/restoreUiState() 能把模式和精度原样带回来。
@@ -79,6 +80,16 @@ TEST_F(NumberDisplay, ScientificModeAlwaysShowsSignAndAtLeastTwoExponentDigits) 
     EXPECT_EQ(displayed(-0.000123456, xTableView::MODE_SCIENTIFIC, 5), "-1.23456e-04");
     // 三位指数不该被补零的那段代码碰坏。
     EXPECT_EQ(displayed(1.0e+100, xTableView::MODE_SCIENTIFIC, 5), "+1.00000e+100");
+}
+
+TEST_F(NumberDisplay, ScientificModeHonorsPrecisionBeyondAFixedBuffer) {
+    // 1.5 在二进制里是精确值，所以第一位小数之后全是 0，这里盯的只是位数本身没被截断。
+    // 缓冲区按位数算之前，这一档的位数先被砍到 24、缓冲区又写死成 64 字节：要 25 位实际
+    // 只画 24 位，要 60 位则连指数都被截掉，而 getRealNumberPrecision() 照样报 25 / 60。
+    EXPECT_EQ(displayed(1.5, xTableView::MODE_SCIENTIFIC, 25),
+              "+1.5" + std::string(24, '0') + "e+00");
+    EXPECT_EQ(displayed(1.5, xTableView::MODE_SCIENTIFIC, 60),
+              "+1.5" + std::string(59, '0') + "e+00");
 }
 
 TEST_F(NumberDisplay, FixFloatModeKeepsRequestedDecimalPlaces) {

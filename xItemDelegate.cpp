@@ -31,20 +31,24 @@
 #include <QStyledItemDelegate>
 #include <QSet>
 #include <QMetaType>
+#include <QByteArray>
 #include <QString>
 #include <cstdio>  // For snprintf
 
 /**
  * @brief 将浮点数格式化为科学计数法字符串。
  * @param value 要格式化的浮点数。
- * @param precision 小数点后保留的位数；<= 0 时按 6 位。
+ * @param precision 小数点后保留的位数；<= 0 时按 6 位，不设上限。
  * @return 格式化后的字符串，例如 "+1.234560e+01"。
  */
 static QString formatScientific(double value, int precision) {
-    // 小数点后的位数。<= 0 按 6 位（和 MODE_GENERAL 缺省 8 位有效数字同一个路子），
-    // 上限 24 位是为了下面的 buffer 一定装得下，不至于被 snprintf 截断。
-    int digits = precision > 0 ? precision : 6;
-    if (digits > 24) digits = 24;
+    // 小数点后的位数。<= 0 按 6 位，和 MODE_GENERAL 缺省 8 位有效数字同一个路子。
+    //
+    // 这里不设上限：另外两档把精度原样交给 QLocale，要几位给几位，这一档也得一样。
+    // 砍一刀的话，getRealNumberPrecision() 报的、UI 状态里存的和实际画出来的位数就
+    // 对不上了，而调用方无从知道上限在哪。位数大到离谱时下面的 buffer 会跟着变大，
+    // 这和 MODE_FIXFLOAT 把同样的位数交给 QLocale 的结果一致，是调用方自己的问题。
+    const int digits = precision > 0 ? precision : 6;
 
     char fmt[32] = {0};
 
@@ -57,12 +61,13 @@ static QString formatScientific(double value, int precision) {
     // e       - 使用小写'e'的科学计数法
     snprintf(fmt, sizeof(fmt), "%%+.%de", digits);
 
-    // 缓冲区要足够大以容纳格式化后的字符串：符号 + 首位 + 小数点 + 24 位 + "e+308"
-    char buffer[64];
+    // 缓冲区按位数算，不写死：符号 + 首位 + 小数点 + digits 位 + "e+308" + 结尾 0，
+    // 再多留几个字节。写死大小的话位数一大就会被 snprintf 悄悄截断。
+    QByteArray buffer(digits + 16, '\0');
 
-    snprintf(buffer, sizeof(buffer), fmt, value);
+    snprintf(buffer.data(), static_cast<size_t>(buffer.size()), fmt, value);
 
-    QString result = QString::fromLatin1(buffer);
+    QString result = QString::fromLatin1(buffer.constData());
 
     // 步骤2: 处理指数，确保它至少有两位数字
     // 查找 'e' 的位置
