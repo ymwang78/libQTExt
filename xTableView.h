@@ -170,6 +170,9 @@ class xTableView : public QTableView {
     Qt::SortOrder current_sort_order_ = Qt::AscendingOrder;
     bool is_stretch_to_fill_ = false;
     QList<int> column_width_ratios_;
+    // 比例模式期间 stretchLastSection 被强制关掉，这里记住调用方原本的设置，退出时还原。
+    bool stretch_last_section_saved_ = false;
+    bool stretch_last_section_overridden_ = false;
     QSet<int> bool_columns_;
     QMap<int, QVector<bool>> bool_column_memory_states_;
     xCheckableHeaderView *checkable_header_;
@@ -189,6 +192,12 @@ class xTableView : public QTableView {
     void setStretchToFill(bool enabled);
 
     void setColumnWidthRatios(const QList<int> &ratios);
+
+    // 按内容量一次列宽，之后用户仍可拖拽。
+    // 必须在模型填完数据后调用：构造时模型还是空的，量出来只有表头文字的宽度。
+    // setStretchToFill(true) 或设过列宽比例时列宽由本类接管，此函数不做任何事。
+    // sample_rows 限制参与计算的行数（<= 0 表示用表头当前的 resizeContentsPrecision）。
+    void autoFitColumns(int sample_rows = 64);
 
     void setSourceModel(QAbstractItemModel *m);
 
@@ -285,6 +294,9 @@ class xTableView : public QTableView {
     void updateFrozenGeometry();
 
     void applyColumnWidthRatios();
+
+    // 按当前是否处于比例模式，关掉 / 还原 stretchLastSection。
+    void updateStretchLastSectionForRatios();
 
     void updateBoolColumnHeaderState(int column);
 

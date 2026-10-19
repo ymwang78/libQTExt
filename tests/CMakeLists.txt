@@ -119,3 +119,28 @@ if(MSVC)
     target_compile_options(test_append_mode_placeholder PRIVATE /utf-8 /wd4996)
 endif()
 add_test(NAME append_mode_placeholder COMMAND test_append_mode_placeholder)
+
+# 列宽：比例模式与 stretchLastSection 的互斥、resizeEvent 调基类、UI 状态 v2、autoFitColumns。
+add_executable(test_column_width
+    test_column_width.cpp
+    ${LIBQTEXT_TABLE_SOURCES}
+)
+target_compile_definitions(test_column_width PRIVATE USE_GTEST_MAIN)
+target_include_directories(test_column_width
+    PRIVATE
+        "${LIBQTEXT_DIR}"
+        "${CXXPROJ_ROOT}/include"
+)
+target_link_libraries(test_column_width
+    PRIVATE
+        GTest::gtest
+        GTest::gtest_main
+        Qt6::Widgets
+        Qt6::Test
+        "${LIBQTEXT_ZCE_LIBRARY}"
+        ${LIBQTEXT_ZCE_DEPS}
+)
+if(MSVC)
+    target_compile_options(test_column_width PRIVATE /utf-8 /wd4996)
+endif()
+add_test(NAME column_width COMMAND test_column_width)

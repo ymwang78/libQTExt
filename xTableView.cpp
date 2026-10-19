@@ -411,6 +411,13 @@ static void applyTableTheme(QTableView *table, bool darkMode) {
             "    selection-color: white;"
             "    border: 1px solid rgb(70, 70, 80);"
             "}"
+            // 表头最后一个 section 右侧那块空白区（CE_HeaderEmptyArea）不走 ::section 的规则，
+            // 只认 QHeaderView 自身的背景。不写这条的话它会回退到系统默认色，
+            // 暗色主题下表头右边会拖出一条亮色条。
+            "QHeaderView {"
+            "    background-color: rgb(65, 50, 59);"
+            "    border: none;"
+            "}"
             "QHeaderView::section {"
             "    background-color: rgb(65, 50, 59);"
             "    color: white;"
@@ -426,6 +433,11 @@ static void applyTableTheme(QTableView *table, bool darkMode) {
             "    selection-background-color: rgb(180, 200, 255);"
             "    selection-color: black;"
             "    border: 1px solid rgb(210, 210, 210);"
+            "}"
+            // 同上：表头右侧空白区的底色要跟着主题走。
+            "QHeaderView {"
+            "    background-color: rgb(235, 235, 235);"
+            "    border: none;"
             "}"
             "QHeaderView::section {"
             "    background-color: rgb(235, 235, 235);"
@@ -620,12 +632,55 @@ void xTableView::setStretchToFill(bool enabled) {
         // 恢复为交互模式，用户可以手动调整列宽
         horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     }
+    updateStretchLastSectionForRatios();
 }
 
 void xTableView::setColumnWidthRatios(const QList<int> &ratios) {
     column_width_ratios_ = ratios;
-    setStretchToFill(false);
+    setStretchToFill(false);  // 内含 updateStretchLastSectionForRatios()
     applyColumnWidthRatios();
+}
+
+void xTableView::updateStretchLastSectionForRatios() {
+    QHeaderView *header = horizontalHeader();
+    if (!header) return;
+
+    const bool ratios_active = !is_stretch_to_fill_ && !column_width_ratios_.isEmpty();
+    if (ratios_active) {
+        // 比例算出来的总宽没铺满视口时（比例列表比列数长就会这样，而且很常见：
+        // setColumnWidthRatios() 多半在模型填数据之前就调了），stretchLastSection 会把末列
+        // 拉去填掉剩下那块，末列的比例被吃掉 —— 四份比例两列的情形实测是 1/4 变成 3/4。
+        // 比例模式期间先关掉，记住调用方的原值，退出比例模式时还原。
+        if (!stretch_last_section_overridden_) {
+            stretch_last_section_saved_ = header->stretchLastSection();
+            stretch_last_section_overridden_ = true;
+        }
+        header->setStretchLastSection(false);
+    } else if (stretch_last_section_overridden_) {
+        stretch_last_section_overridden_ = false;
+        header->setStretchLastSection(stretch_last_section_saved_);
+    }
+}
+
+void xTableView::autoFitColumns(int sample_rows) {
+    // 列宽由本类接管时（等宽平分 / 比例），按内容量宽会被下一次重算覆盖，直接不做。
+    if (is_stretch_to_fill_ || !column_width_ratios_.isEmpty()) return;
+
+    QHeaderView *header = horizontalHeader();
+    if (!header) return;
+
+    // resizeColumnsToContents() 默认最多量 1000 行，行多时很慢。这里临时收紧采样行数，
+    // 量完还原：resizeContentsPrecision 会被 saveState() 序列化进 UI 状态，
+    // 不该因为调了一次量宽就被改掉。
+    const int saved_precision = header->resizeContentsPrecision();
+    const bool tighten = sample_rows > 0 && sample_rows != saved_precision;
+    if (tighten) header->setResizeContentsPrecision(sample_rows);
+
+    resizeColumnsToContents();
+
+    if (tighten) header->setResizeContentsPrecision(saved_precision);
+
+    updateFrozenGeometry();
 }
 
 void xTableView::setSourceModel(QAbstractItemModel *m) {
@@ -700,7 +755,9 @@ void xTableView::setNumberDisplayMode(NUMBER_DISPLAY_MODE mode, int precision) {
 
 QJsonObject xTableView::saveUiState() const {
     QJsonObject state;
-    state["version"] = 1;
+    // version 2 起多存一个 stretchLastSection：比例模式下表头自己的 saveState() 里存的是被
+    // updateStretchLastSectionForRatios() 改成 false 的值，调用方原本的设置只能单独存一份。
+    state["version"] = 2;
 
     state["numberDisplayMode"] = static_cast<int>(getNumberDisplayMode());
     state["numberDisplayPrecision"] = getNumberDisplayPrecision();
@@ -711,6 +768,10 @@ QJsonObject xTableView::saveUiState() const {
     state["stretchToFill"] = is_stretch_to_fill_;
     state["columnWidthRatios"] = intListToJsonArray(column_width_ratios_);
     state["boolColumns"] = intSetToJsonArray(bool_columns_);
+    state["stretchLastSection"] =
+        stretch_last_section_overridden_
+            ? stretch_last_section_saved_
+            : (horizontalHeader() != nullptr && horizontalHeader()->stretchLastSection());
 
     state["horizontalHeaderState"] = headerStateToString(horizontalHeader());
     state["verticalHeaderState"] = headerStateToString(verticalHeader());
@@ -722,7 +783,7 @@ QJsonObject xTableView::saveUiState() const {
 
 void xTableView::restoreUiState(const QJsonObject &state) {
     const int version = state.value("version").toInt(1);
-    if (version > 1) return;
+    if (version > 2) return;
 
     if (state.contains("numberDisplayMode") || state.contains("numberDisplayPrecision")) {
         const int mode = state.value("numberDisplayMode").toInt(
@@ -801,11 +862,23 @@ void xTableView::restoreUiState(const QJsonObject &state) {
 
     restoreHeaderStateFromString(verticalHeader(), state.value("verticalHeaderState"));
 
+    // v1 的状态里没有这个字段，此时不碰 stretchLastSection：表头的 state 里存的就是原值，
+    // 行为与升版本前一致。
+    if (hasHorizontalHeader && state.contains("stretchLastSection")) {
+        stretch_last_section_overridden_ = false;
+        horizontalHeader()->setStretchLastSection(
+            state.value("stretchLastSection").toBool(false));
+    }
+
     if (state.contains("stretchToFill")) {
         setStretchToFill(state.value("stretchToFill").toBool(false));
     } else if (hasColumnWidthRatios && !column_width_ratios_.isEmpty()) {
         setStretchToFill(false);
     }
+
+    // column_width_ratios_ 是上面直接赋值进去的，没走 setColumnWidthRatios()，
+    // 这里补一次比例模式与 stretchLastSection 的互斥处理。
+    updateStretchLastSectionForRatios();
 
     if (hasColumnWidthRatios) applyColumnWidthRatios();
 
@@ -960,10 +1033,12 @@ void xTableView::mousePressEvent(QMouseEvent *event) {
 }
 
 void xTableView::resizeEvent(QResizeEvent *e) {
+    // 基类的 resizeEvent 负责 updateGeometries()：滚动条范围、表头几何都在里面重算。
+    // 比例模式以前走 else 分支整个跳过了它，视口变化后会留下过期的滚动条状态。
+    // 必须先调基类，再按比例改列宽（列宽变化自己会触发表头的 sectionResized）。
+    QTableView::resizeEvent(e);
     if (!is_stretch_to_fill_ && !column_width_ratios_.isEmpty()) {
         applyColumnWidthRatios();
-    } else {
-        QTableView::resizeEvent(e);
     }
     updateFrozenGeometry();
 }
