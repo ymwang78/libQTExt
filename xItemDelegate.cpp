@@ -265,17 +265,20 @@ QWidget *xItemDelegate::createEditor(QWidget *parent, const QStyleOptionViewItem
     }
     QVariant comboData = idx.data(xTableView::ComboBoxItemsRole);
     if (comboData.isValid()) {
-        if (comboData.canConvert<QStringList>()) {
-            QComboBox *e = new QComboBox(parent);
-            e->addItems(comboData.toStringList());
-            e->setFrame(false);
+        const auto commitOnActivated = [this](QComboBox* combo) {
             auto* delegate = const_cast<xItemDelegate*>(this);
-            connect(e, qOverload<int>(&QComboBox::activated), delegate,
-                    [delegate, editor = QPointer<QWidget>(e)](int) {
+            connect(combo, qOverload<int>(&QComboBox::activated), delegate,
+                    [delegate, editor = QPointer<QWidget>(combo)](int) {
                         if (!editor) return;
                         emit delegate->commitData(editor.data());
                         if (editor) emit delegate->closeEditor(editor.data());
                     }, Qt::QueuedConnection);
+        };
+        if (comboData.canConvert<QStringList>()) {
+            QComboBox *e = new QComboBox(parent);
+            e->addItems(comboData.toStringList());
+            e->setFrame(false);
+            commitOnActivated(e);
             return e;
         } else if (comboData.canConvert<std::vector<std::string>>()) {
             QComboBox *e = new QComboBox(parent);
@@ -284,13 +287,7 @@ QWidget *xItemDelegate::createEditor(QWidget *parent, const QStyleOptionViewItem
                 e->addItem(QString::fromStdString(item));
             }
             e->setFrame(false);
-            auto* delegate = const_cast<xItemDelegate*>(this);
-            connect(e, qOverload<int>(&QComboBox::activated), delegate,
-                    [delegate, editor = QPointer<QWidget>(e)](int) {
-                        if (!editor) return;
-                        emit delegate->commitData(editor.data());
-                        if (editor) emit delegate->closeEditor(editor.data());
-                    }, Qt::QueuedConnection);
+            commitOnActivated(e);
             return e;
         }
     }
