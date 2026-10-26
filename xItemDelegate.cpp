@@ -343,7 +343,7 @@ QWidget *xItemDelegate::createEditor(QWidget *parent, const QStyleOptionViewItem
                 validator->setLocale(QLocale::c());
 
                 // 4. (可选) 设置范围和精度
-                validator->setRange(-1.0e20, 1.0e20, 15);  // DBL_MAX, 15位小数
+                validator->setRange(-1.0e20, 1.0e20, qMax(15, realnum_precision_));
 
                 // 5. 将验证器应用到行编辑器上
                 e->setValidator(validator);
@@ -451,8 +451,15 @@ void xItemDelegate::setModelData(QWidget *editor, QAbstractItemModel *model,
             newVal = zce::Any((int64_t)e->value());
         else if (auto e = qobject_cast<QCheckBox *>(editor))
             newVal = zce::Any(e->isChecked());
-        else if (auto e = qobject_cast<QLineEdit *>(editor))
-            newVal = zce::Any::fromJsonString(e->text().toStdString());
+        else if (auto e = qobject_cast<QLineEdit *>(editor)) {
+            bool isNumber = false;
+            const double value = originalData.value<zce::Any>().is_double()
+                                     ? e->text().toDouble(&isNumber)
+                                     : 0.0;
+            // Scientific display includes '+', which is valid numeric input but invalid JSON.
+            newVal = isNumber ? zce::Any(value)
+                              : zce::Any::fromJsonString(e->text().toStdString());
+        }
         out = QVariant::fromValue(newVal);
         //model->setData(idx, out, Qt::UserRole);
         model->setData(idx, xTableView::anyToString(newVal), Qt::DisplayRole);
