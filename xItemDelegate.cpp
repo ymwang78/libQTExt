@@ -269,6 +269,13 @@ QWidget *xItemDelegate::createEditor(QWidget *parent, const QStyleOptionViewItem
             QComboBox *e = new QComboBox(parent);
             e->addItems(comboData.toStringList());
             e->setFrame(false);
+            auto* delegate = const_cast<xItemDelegate*>(this);
+            connect(e, qOverload<int>(&QComboBox::activated), delegate,
+                    [delegate, editor = QPointer<QWidget>(e)](int) {
+                        if (!editor) return;
+                        emit delegate->commitData(editor.data());
+                        if (editor) emit delegate->closeEditor(editor.data());
+                    }, Qt::QueuedConnection);
             return e;
         } else if (comboData.canConvert<std::vector<std::string>>()) {
             QComboBox *e = new QComboBox(parent);
@@ -277,6 +284,13 @@ QWidget *xItemDelegate::createEditor(QWidget *parent, const QStyleOptionViewItem
                 e->addItem(QString::fromStdString(item));
             }
             e->setFrame(false);
+            auto* delegate = const_cast<xItemDelegate*>(this);
+            connect(e, qOverload<int>(&QComboBox::activated), delegate,
+                    [delegate, editor = QPointer<QWidget>(e)](int) {
+                        if (!editor) return;
+                        emit delegate->commitData(editor.data());
+                        if (editor) emit delegate->closeEditor(editor.data());
+                    }, Qt::QueuedConnection);
             return e;
         }
     }

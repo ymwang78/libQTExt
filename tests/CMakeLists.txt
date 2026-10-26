@@ -169,3 +169,15 @@ if(MSVC)
     target_compile_options(test_number_display PRIVATE /utf-8 /wd4996)
 endif()
 add_test(NAME number_display COMMAND test_number_display)
+
+# User selections commit without requiring focus loss.
+add_executable(test_combo_commit test_combo_commit.cpp ${LIBQTEXT_TABLE_SOURCES})
+target_compile_definitions(test_combo_commit PRIVATE USE_GTEST_MAIN)
+target_include_directories(test_combo_commit PRIVATE "${LIBQTEXT_DIR}" "${CXXPROJ_ROOT}/include")
+target_link_libraries(test_combo_commit PRIVATE
+    GTest::gtest GTest::gtest_main Qt6::Widgets Qt6::Test
+    "${LIBQTEXT_ZCE_LIBRARY}" ${LIBQTEXT_ZCE_DEPS})
+if(MSVC)
+    target_compile_options(test_combo_commit PRIVATE /utf-8 /wd4996)
+endif()
+add_test(NAME combo_commit COMMAND test_combo_commit)
