@@ -22,6 +22,8 @@
 #include <QApplication>
 #include <QJsonObject>
 #include <QLocale>
+#include <QLineEdit>
+#include <QWidget>
 #include <QSignalSpy>
 #include <QStandardItemModel>
 #include <QVariant>
@@ -113,6 +115,119 @@ TEST_F(NumberDisplay, NonFloatingPointValuesAreNotReformatted) {
     EXPECT_EQ(displayed(QVariant(42), xTableView::MODE_FIXFLOAT, 5), "42");
     EXPECT_EQ(displayed(QVariant(QStringLiteral("12.3456789")), xTableView::MODE_FIXFLOAT, 5),
               "12.3456789");
+}
+
+TEST_F(NumberDisplay, NumericEditorUsesPrecisionWithoutSubmittingRounding) {
+    QStandardItemModel model(1, 1);
+    const QModelIndex index = model.index(0, 0);
+    const double original = 32.517143969477;
+    model.setData(index, original);
+    delegate_->setRealNumberShowMode(xTableView::MODE_FIXFLOAT, 4);
+    QWidget parent;
+    std::unique_ptr<QWidget> editor(delegate_->createEditor(&parent, {}, index));
+    auto* lineEdit = qobject_cast<QLineEdit*>(editor.get());
+    ASSERT_NE(lineEdit, nullptr);
+    delegate_->setEditorData(editor.get(), index);
+    EXPECT_EQ(lineEdit->text(), QStringLiteral("32.5171"));
+
+    QSignalSpy changed(&model, &QAbstractItemModel::dataChanged);
+    delegate_->setModelData(editor.get(), &model, index);
+    EXPECT_EQ(changed.count(), 0);
+    EXPECT_DOUBLE_EQ(index.data(Qt::EditRole).toDouble(), original);
+    lineEdit->setText(QStringLiteral("33.1250"));
+    delegate_->setModelData(editor.get(), &model, index);
+    EXPECT_DOUBLE_EQ(index.data(Qt::EditRole).toDouble(), 33.125);
+    EXPECT_EQ(changed.count(), 1);
+}
+
+TEST_F(NumberDisplay, UneditedRoundedTextDoesNotOverwriteNewServerValue) {
+    QStandardItemModel model(1, 1);
+    const QModelIndex index = model.index(0, 0);
+    model.setData(index, 1.23456789);
+    delegate_->setRealNumberShowMode(xTableView::MODE_FIXFLOAT, 4);
+    QWidget parent;
+    std::unique_ptr<QWidget> editor(delegate_->createEditor(&parent, {}, index));
+    delegate_->setEditorData(editor.get(), index);
+    model.setData(index, 9.87654321);
+    delegate_->setModelData(editor.get(), &model, index);
+    EXPECT_DOUBLE_EQ(index.data(Qt::EditRole).toDouble(), 9.87654321);
+}
+
+TEST_F(NumberDisplay, ScientificEditorKeepsTinyValuesWithoutGroupingSeparators) {
+    QStandardItemModel model(1, 1);
+    const QModelIndex index = model.index(0, 0);
+    model.setData(index, 0.0000123456789);
+    delegate_->setRealNumberShowMode(xTableView::MODE_SCIENTIFIC, 4);
+    QWidget parent;
+    std::unique_ptr<QWidget> editor(delegate_->createEditor(&parent, {}, index));
+    delegate_->setEditorData(editor.get(), index);
+    auto* lineEdit = qobject_cast<QLineEdit*>(editor.get());
+    ASSERT_NE(lineEdit, nullptr);
+    EXPECT_EQ(lineEdit->text(), QStringLiteral("+1.2346e-05"));
+    EXPECT_TRUE(lineEdit->hasAcceptableInput());
+    model.setData(index, 12345.67891);
+    delegate_->setRealNumberShowMode(xTableView::MODE_FIXFLOAT, 4);
+    delegate_->setEditorData(editor.get(), index);
+    EXPECT_EQ(lineEdit->text(), QStringLiteral("12345.6789"));
+}
+
+TEST_F(NumberDisplay, ScientificAnyEditorPreservesDoubleTypeOnCommit) {
+    QStandardItemModel model(1, 1);
+    const auto index = model.index(0, 0);
+    model.setData(index, QVariant::fromValue(zce::Any(1.23e-5)));
+    delegate_->setRealNumberShowMode(xTableView::MODE_SCIENTIFIC, 4);
+    QWidget parent;
+    std::unique_ptr<QWidget> editor(delegate_->createEditor(&parent, {}, index));
+    auto* lineEdit = qobject_cast<QLineEdit*>(editor.get());
+    ASSERT_NE(lineEdit, nullptr);
+    delegate_->setEditorData(editor.get(), index);
+    EXPECT_EQ(lineEdit->text(), QStringLiteral("+1.2300e-05"));
+    lineEdit->setText(QStringLiteral("+1.5000e-05"));
+    delegate_->setModelData(editor.get(), &model, index);
+    const auto value = index.data(Qt::EditRole).value<zce::Any>();
+    ASSERT_TRUE(value.is_double());
+    EXPECT_DOUBLE_EQ(value.dbl(), 1.5e-5);
+}
+
+TEST_F(NumberDisplay, FixedAnyEditorPreservesDoubleTypeForIntegralValues) {
+    QStandardItemModel model(1, 1);
+    const auto index = model.index(0, 0);
+    model.setData(index, QVariant::fromValue(zce::Any(1.5)));
+    delegate_->setRealNumberShowMode(xTableView::MODE_FIXFLOAT, 4);
+    QWidget parent;
+    std::unique_ptr<QWidget> editor(delegate_->createEditor(&parent, {}, index));
+    delegate_->setEditorData(editor.get(), index);
+    auto* lineEdit = qobject_cast<QLineEdit*>(editor.get());
+    ASSERT_NE(lineEdit, nullptr);
+    lineEdit->setText(QStringLiteral("2"));
+    delegate_->setModelData(editor.get(), &model, index);
+    const auto value = index.data(Qt::EditRole).value<zce::Any>();
+    ASSERT_TRUE(value.is_double());
+    EXPECT_DOUBLE_EQ(value.dbl(), 2.0);
+}
+
+TEST_F(NumberDisplay, HighPrecisionEditorAcceptsInPlaceNumericChanges) {
+    for (const int mode : {xTableView::MODE_FIXFLOAT, xTableView::MODE_SCIENTIFIC}) {
+        for (const int precision : {25, 60}) {
+            SCOPED_TRACE(::testing::Message() << "mode=" << mode << ", precision=" << precision);
+            QStandardItemModel model(1, 1);
+            const auto index = model.index(0, 0);
+            model.setData(index, 1.5);
+            delegate_->setRealNumberShowMode(mode, precision);
+            QWidget parent;
+            std::unique_ptr<QWidget> editor(delegate_->createEditor(&parent, {}, index));
+            auto* lineEdit = qobject_cast<QLineEdit*>(editor.get());
+            ASSERT_NE(lineEdit, nullptr);
+            delegate_->setEditorData(editor.get(), index);
+            ASSERT_TRUE(lineEdit->hasAcceptableInput());
+            QString edited = lineEdit->text();
+            edited[edited.indexOf('.') + 1] = QLatin1Char('6');
+            lineEdit->setText(edited);
+            ASSERT_TRUE(lineEdit->hasAcceptableInput());
+            delegate_->setModelData(editor.get(), &model, index);
+            EXPECT_DOUBLE_EQ(index.data(Qt::EditRole).toDouble(), 1.6);
+        }
+    }
 }
 
 TEST_F(NumberDisplay, SetNumberDisplayModeForwardsToDelegateAndSignalsOnlyOnChange) {
