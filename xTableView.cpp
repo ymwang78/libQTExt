@@ -552,7 +552,7 @@ static bool restoreHeaderStateFromString(QHeaderView *header, const QJsonValue &
 }
 
 static bool isValidNumberDisplayMode(int mode) {
-    return mode >= xTableView::MODE_GENERAL && mode <= xTableView::MODE_SCIENTIFIC;
+    return mode >= xTableView::MODE_GENERAL && mode <= xTableView::MODE_FIXWIDTH;
 }
 
 static Qt::SortOrder jsonToSortOrder(const QJsonValue &value) {

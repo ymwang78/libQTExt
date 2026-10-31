@@ -155,7 +155,10 @@ class xTableView : public QTableView {
     static constexpr int BoolColumnStateRole = Qt::UserRole + 106;
     static constexpr int StringMapRole = Qt::UserRole + 107;
     static constexpr int StringMapDialogFactoryRole = Qt::UserRole + 108;
-    enum NUMBER_DISPLAY_MODE { MODE_GENERAL, MODE_FIXFLOAT, MODE_SCIENTIFIC };
+    // MODE_FIXWIDTH：定长，precision 是总字符数（含负号），<= 0 按 7；照 VB 的 定长显示(值, 长度)。
+    // 小数位数跟着整数部分的位数走，整数部分太长或者数太小时改用科学计数法。
+    // 只有显式设成这一档才生效；排在最后，前三档存盘的模式编号不变。
+    enum NUMBER_DISPLAY_MODE { MODE_GENERAL, MODE_FIXFLOAT, MODE_SCIENTIFIC, MODE_FIXWIDTH };
 
   private:  // data members
     Q_OBJECT
