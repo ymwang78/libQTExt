@@ -16,8 +16,12 @@
 #include <qwt_plot_zoomer.h>
 #include <qwt_plot_magnifier.h>
 #include <qwt_scale_div.h>
+#include <qwt_date_scale_draw.h>
+#include <qwt_date_scale_engine.h>
 #include <QString>
 #include <cmath>  // for std::abs
+
+#include "xTimeAxisFormat.h"
 
 class xQwtScaleDraw : public QwtScaleDraw {
   public:
@@ -36,6 +40,49 @@ class xQwtScaleDraw : public QwtScaleDraw {
         return QwtScaleDraw::label(value);
     }
 };
+
+// 时间轴刻度: 文字走 xTimeAxisLabel 的精简格式 ("2016-10-06  10-13  10-20 ..."),
+// 取代 QwtDateScaleDraw 默认的 "周四 06 10月 2016"; setDateFormat() 设的格式不再起作用。
+// 轴上的值按 Qwt 约定是 1970 起的毫秒数。配 QwtDateScaleEngine 刻度才落在整天 / 整点上,
+// 用 xQwtSetTimeAxis() 一次装好。写在头文件里, 不用它的使用者不会编出对它的引用。
+class xQwtDateScaleDraw : public QwtDateScaleDraw {
+  public:
+    explicit xQwtDateScaleDraw(Qt::TimeSpec spec = Qt::LocalTime) : QwtDateScaleDraw(spec) {}
+
+    QwtText label(double value) const override {
+        // 只看会画出来的主刻度 (落在轴范围内), "第一个刻度"才是屏幕上最左边那个
+        const QwtScaleDiv& div = scaleDiv();
+        QList<double> ticks;
+        for (double t : div.ticks(QwtScaleDiv::MajorTick))
+            if (div.contains(t)) ticks.append(t);
+        const int prev = xPreviousTickIndex(ticks, value);
+        return xTimeAxisLabel(toDateTime(value), prev >= 0 ? toDateTime(ticks[prev]) : QDateTime(),
+                              timeUnit(intervalType(div)));
+    }
+
+  private:
+    static xTimeUnit timeUnit(QwtDate::IntervalType type) {
+        switch (type) {
+        case QwtDate::Millisecond: return xTimeUnit::Millisecond;
+        case QwtDate::Second:      return xTimeUnit::Second;
+        case QwtDate::Minute:      return xTimeUnit::Minute;
+        case QwtDate::Hour:        return xTimeUnit::Hour;
+        case QwtDate::Day:         return xTimeUnit::Day;
+        case QwtDate::Week:        return xTimeUnit::Week;
+        case QwtDate::Month:       return xTimeUnit::Month;
+        case QwtDate::Year:        return xTimeUnit::Year;
+        }
+        return xTimeUnit::Second;
+    }
+};
+
+// 把 plot 的 axis 设成时间轴: xQwtDateScaleDraw + 按日历对齐刻度的 QwtDateScaleEngine。
+inline void xQwtSetTimeAxis(QwtPlot* plot, QwtAxisId axis = QwtAxis::XBottom,
+                            Qt::TimeSpec spec = Qt::LocalTime) {
+    if (!plot) return;
+    plot->setAxisScaleDraw(axis, new xQwtDateScaleDraw(spec));
+    plot->setAxisScaleEngine(axis, new QwtDateScaleEngine(spec));
+}
 
 class xQwtPlot : public QwtPlot {
     Q_OBJECT
