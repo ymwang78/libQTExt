@@ -18,6 +18,10 @@
 #include <qwt_scale_div.h>
 #include <qwt_date_scale_draw.h>
 #include <qwt_date_scale_engine.h>
+#include <qwt_plot_legenditem.h>
+#include <QBrush>
+#include <QColor>
+#include <QPen>
 #include <QString>
 #include <cmath>  // for std::abs
 
@@ -82,6 +86,28 @@ inline void xQwtSetTimeAxis(QwtPlot* plot, QwtAxisId axis = QwtAxis::XBottom,
     if (!plot) return;
     plot->setAxisScaleDraw(axis, new xQwtDateScaleDraw(spec));
     plot->setAxisScaleEngine(axis, new QwtDateScaleEngine(spec));
+}
+
+// 把图例叠在画布角上 (QwtPlotLegendItem), 不像 insertLegend() 那样在图外另占一列。
+// 单列、半透明白底加细边框, 底下的曲线仍隐约可见; 只列出带 QwtPlotItem::Legend 属性的项。
+// 图例项归 plot 所有, 返回它是为了调用方再改位置 / 字体。
+inline QwtPlotLegendItem* xQwtAttachCanvasLegend(
+    QwtPlot* plot, Qt::Alignment alignment = Qt::AlignTop | Qt::AlignRight) {
+    if (!plot) return nullptr;
+    auto* legend = new QwtPlotLegendItem();
+    legend->setAlignmentInCanvas(alignment);
+    legend->setOffsetInCanvas(Qt::Horizontal | Qt::Vertical, 8);
+    legend->setMaxColumns(1);
+    legend->setMargin(6);        // 边框到图例项
+    legend->setItemMargin(1);    // 图例项四周
+    legend->setItemSpacing(6);   // 色块到文字
+    legend->setFont(plot->font());
+    legend->setBackgroundMode(QwtPlotLegendItem::LegendBackground);
+    legend->setBackgroundBrush(QColor(255, 255, 255, 215));
+    legend->setBorderPen(QPen(QColor(0xd5, 0xdd, 0xe7)));
+    legend->setBorderRadius(6);
+    legend->attach(plot);
+    return legend;
 }
 
 class xQwtPlot : public QwtPlot {
