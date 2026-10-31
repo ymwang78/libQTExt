@@ -651,7 +651,7 @@ void xQwtCurveScaling::setAbsoluteFitVisible(bool on) {
     }
     if (on) {
         scheduleFit();
-    } else {
+    } else if (!m_manualY) {   // 手动拖的范围留着, 直到 resetYBounds 或切模式
         m_plot->setAxisAutoScale(m_yAxis, true);
         scheduleReplot();
     }
