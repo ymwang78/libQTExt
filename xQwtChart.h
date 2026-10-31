@@ -165,10 +165,12 @@ class xQwtCurveScaling : public QObject {
     void restoreCurve(QwtPlotCurve* curve);
     void applyAxis();
     void updateOverlay();
+    void positionBox();
     void scheduleReplot();
 
     QwtPlot* m_plot;
     QwtAxisId m_yAxis;
+    QWidget* m_canvas;   // 构造时记下: plot 析构时画布的事件里不能再经 m_plot 取
     Mode m_mode = Mode::Absolute;
     QFrame* m_box = nullptr;
     QRadioButton* m_absoluteButton = nullptr;

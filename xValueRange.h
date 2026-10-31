@@ -23,7 +23,7 @@ struct xValueRange {
     double toPercent(double value) const { return (value - lower) / (upper - lower) * 100.0; }
     double fromPercent(double percent) const { return lower + percent / 100.0 * (upper - lower); }
 
-    // 由数据的最小 / 最大值得到量程, 两头各外扩跨度的 margin 倍; 常数数据按 |值| 外扩
+    // 由数据的最小 / 最大值得到量程, 两头各外扩跨度的 margin 倍; 常数数据外扩 |值| 的 margin 倍
     // (值为 0 时外扩 1), 保证量程不为空。最小 / 最大值不是有限数时返回无效量程。
     static xValueRange fromData(double min_value, double max_value, double margin = 0.05) {
         if (!std::isfinite(min_value) || !std::isfinite(max_value) || max_value < min_value)

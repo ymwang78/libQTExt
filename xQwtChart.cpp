@@ -270,9 +270,8 @@ void XAxisOnlyMagnifier::rescale(double factor) {
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 xQwtCurveScaling::xQwtCurveScaling(QwtPlot* plot, QwtAxisId yAxis)
-    : QObject(plot), m_plot(plot), m_yAxis(yAxis) {
-    QWidget* canvas = plot->canvas();
-    m_box = new QFrame(canvas);
+    : QObject(plot), m_plot(plot), m_yAxis(yAxis), m_canvas(plot->canvas()) {
+    m_box = new QFrame(m_canvas);
     m_box->setObjectName(QStringLiteral("xQwtCurveScalingBox"));
     // 与 xQwtAttachCanvasLegend 的图例同一套外观
     m_box->setStyleSheet(QStringLiteral(
@@ -291,7 +290,7 @@ xQwtCurveScaling::xQwtCurveScaling(QwtPlot* plot, QwtAxisId yAxis)
             [this](bool on) { setMode(on ? Mode::PerCurve : Mode::Absolute); });
 
     connect(plot, &QwtPlot::itemAttached, this, &xQwtCurveScaling::onItemAttached);
-    canvas->installEventFilter(this);
+    m_canvas->installEventFilter(this);
     updateOverlay();
 }
 
@@ -370,8 +369,17 @@ void xQwtCurveScaling::refresh() {
 }
 
 bool xQwtCurveScaling::eventFilter(QObject* watched, QEvent* event) {
-    if (watched == m_plot->canvas() && event->type() == QEvent::Resize) updateOverlay();
+    // plot 析构时 QwtPlot 的私有数据先删, 画布随后才拆, 拆的时候还会收到 Destroy 等事件:
+    // 这里先看事件类型, 也不经 m_plot 取画布, 摆放单选框只碰画布和单选框自己。
+    if (event->type() == QEvent::Resize && watched == m_canvas) positionBox();
     return QObject::eventFilter(watched, event);
+}
+
+void xQwtCurveScaling::positionBox() {
+    const int margin = 8;
+    m_box->adjustSize();
+    m_box->move(m_canvas->width() - m_box->width() - margin, margin);
+    m_box->raise();
 }
 
 void xQwtCurveScaling::onItemAttached(QwtPlotItem* item, bool on) {
@@ -453,11 +461,7 @@ void xQwtCurveScaling::updateOverlay() {
         if (curve->testItemAttribute(QwtPlotItem::Legend)) ++listed;
     const bool visible = m_mode == Mode::PerCurve || listed >= 2;
     m_box->setVisible(visible);
-
-    const int margin = 8;
-    m_box->adjustSize();
-    m_box->move(m_plot->canvas()->width() - m_box->width() - margin, margin);
-    m_box->raise();
+    positionBox();
 
     // 右上角的叠加图例让到单选框下面
     for (QwtPlotItem* item : m_plot->itemList(QwtPlotItem::Rtti_PlotLegend)) {
