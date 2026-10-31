@@ -16,6 +16,7 @@
 #include <QEvent>
 #include <QFrame>
 #include <QHBoxLayout>
+#include <QKeyEvent>
 #include <QMouseEvent>
 #include <QRadioButton>
 #include <QSignalBlocker>
@@ -88,8 +89,43 @@ XAxisOnlyZoomer::XAxisOnlyZoomer(QWidget* canvas) : QwtPlotZoomer(canvas) {
     // Only allow X-axis selection
     setRubberBandPen(QPen(Qt::blue, 1, Qt::DashLine));
     setTrackerPen(QPen(Qt::blue));
-    // 禁用右键复位
+    // 禁用右键复位 (Qwt 的右键退回构造时的缩放起点); 要右键恢复全图用 setResetTriggers(RightClick)
     setMousePattern(QwtEventPattern::MouseSelect2, Qt::NoButton);
+}
+
+void XAxisOnlyZoomer::setResetTriggers(ResetTriggers triggers, int key) {
+    m_resetTriggers = triggers;
+    m_resetKey = key;
+}
+
+void XAxisOnlyZoomer::resetToFullView() {
+    QwtPlot* plt = plot();
+    if (!plt) return;
+    // 正拖着框选时 (例如拖到一半按了 Esc / 右键) 先取消这次选择, 否则松开左键时
+    // 这个框会按恢复后的刻度再放大一次
+    reset();
+    // 横轴交回自动范围按全部数据重算, 再以此为缩放起点; 纵轴 (自动 / 固定) 一概不动
+    plt->setAxisAutoScale(xAxis(), true);
+    setZoomBase(true);
+    emit resetRequested();
+}
+
+bool XAxisOnlyZoomer::eventFilter(QObject* object, QEvent* event) {
+    if (m_resetTriggers.testFlag(ResetTrigger::KeyPress) && object == parentWidget() &&
+        event->type() == QEvent::KeyPress && static_cast<QKeyEvent*>(event)->key() == m_resetKey) {
+        resetToFullView();
+        return true;   // 吃掉, 例如 Esc 不再传给外层弹窗把它关掉
+    }
+    return QwtPlotZoomer::eventFilter(object, event);
+}
+
+void XAxisOnlyZoomer::widgetMouseReleaseEvent(QMouseEvent* event) {
+    if (m_resetTriggers.testFlag(ResetTrigger::RightClick) && event &&
+        event->button() == Qt::RightButton) {
+        resetToFullView();
+        return;
+    }
+    QwtPlotZoomer::widgetMouseReleaseEvent(event);
 }
 
 bool XAxisOnlyZoomer::accept(QPolygon& pa) const {
@@ -148,6 +184,9 @@ bool XAxisOnlyZoomer::accept(QPolygon& pa) const {
 
 // Override end to emit our custom signal
 bool XAxisOnlyZoomer::end(bool ok) {
+    // 打开了恢复全图时: 在缩放起点上开始新的放大, 先把起点更新成当前视图。起点是构造时记下的,
+    // 那时曲线往往还没画, 不更新的话中键后退 / 加减号会退到 Qwt 的默认范围。
+    if (m_resetTriggers.toInt() != 0 && ok && zoomRectIndex() == 0) setZoomBase(false);
     bool result = QwtPlotZoomer::end(ok);
     if (ok && result) {
         emit xAxisZoomed(zoomRect());
@@ -211,7 +250,10 @@ void XAxisOnlyZoomer::widgetMouseDoubleClickEvent(QMouseEvent* event) {
     // 不调用基类，避免基类把双击再当成一次额外的 begin()。
     if (event && event->button() == Qt::LeftButton) {
         reset();
-        emit resetRequested();
+        if (m_resetTriggers.testFlag(ResetTrigger::DoubleClick))
+            resetToFullView();   // 里面会发 resetRequested
+        else
+            emit resetRequested();
         return;
     }
     QwtPlotZoomer::widgetMouseDoubleClickEvent(event);
