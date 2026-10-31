@@ -372,13 +372,13 @@ bool XAxisOnlyZoomer::accept(QPolygon& pa) const {
         rect.setTop(yDiv.lowerBound());
         rect.setBottom(yDiv.upperBound());
 
-        // Ensure X-axis coordinates are not less than 0
-        if (rect.left() < 0.0) {
+        // Ensure X-axis coordinates are not less than 0 (除非使用方允许横轴为负)
+        if (!m_allowNegativeX && rect.left() < 0.0) {
             double width = rect.width();
             rect.setLeft(0.0);
             rect.setRight(width);
         }
-        if (rect.right() < 0.0) {
+        if (!m_allowNegativeX && rect.right() < 0.0) {
             rect.setRight(0.0);
         }
 
@@ -501,8 +501,8 @@ void XAxisOnlyMagnifier::rescale(double factor) {
     double newXLower = xCenter - newXRange / 2.0;
     double newXUpper = xCenter + newXRange / 2.0;
 
-    // Ensure X-axis coordinates are not less than 0
-    if (newXLower < 0.0) {
+    // Ensure X-axis coordinates are not less than 0 (除非使用方允许横轴为负)
+    if (!m_allowNegativeX && newXLower < 0.0) {
         newXUpper += (0.0 - newXLower);  // Shift the range to the right
         newXLower = 0.0;
     }
