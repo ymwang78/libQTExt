@@ -83,8 +83,9 @@ xValueRange autoRange(const QwtPlotCurve* curve) {
 }
 
 // 纵轴上下界的拖动把手: 叠在纵轴控件 (QwtScaleWidget) 上的透明子控件, 两端各画一个指向画布的
-// 小三角。按住把手上下拖, 三角跟着鼠标走并提示松手后的界值, 松手才改上界 / 下界; 只点不拖不改。
-// 双击纵轴恢复自动。界值按按下时的刻度映射换算。
+// 小三角。按住把手上下拖, 三角跟着鼠标走, 上界 / 下界随之实时改、画图区跟着变, 并提示当前界值;
+// 松手后三角回到轴端 (新界值所在处)。只点不拖不改。双击纵轴恢复自动。界值一直按按下时的刻度
+// 映射换算, 纵轴边拖边变也不会反过来带偏鼠标对应的值。
 class xAxisBoundHandles : public QWidget {
   public:
     xAxisBoundHandles(QwtScaleWidget* axis, xQwtCurveScaling* scaling)
@@ -142,10 +143,11 @@ class xAxisBoundHandles : public QWidget {
             }
             return;
         }
-        // 只挪三角、提示松手后的值, 纵轴先不动
+        // 三角跟着鼠标, 纵轴和画图区实时跟着改
         const double value = draggedValue(m_drag, pos.y());
         m_dragY = m_map.transform(value);
         update();
+        applyDrag(m_drag, pos.y());
         QToolTip::showText(event->globalPosition().toPoint(), QString::number(value, 'g', 6), this);
     }
 
@@ -154,17 +156,10 @@ class xAxisBoundHandles : public QWidget {
             QWidget::mouseReleaseEvent(event);
             return;
         }
-        const double y = event->position().y();
-        const Handle dragged = m_drag;
-        m_drag = None;
+        applyDrag(m_drag, event->position().y());
+        m_drag = None;   // 三角回到轴端
         QToolTip::hideText();
         update();
-        if (std::abs(y - m_pressY) < 2.0) return;   // 只是点了一下
-        const double value = draggedValue(dragged, y);
-        if (dragged == Upper)
-            m_scaling->setYBounds(m_lower, value);
-        else
-            m_scaling->setYBounds(value, m_upper);
     }
 
     void mouseDoubleClickEvent(QMouseEvent* event) override {
@@ -200,6 +195,16 @@ class xAxisBoundHandles : public QWidget {
         const double value = m_map.invTransform(y);
         const double min_span = (m_upper - m_lower) * 0.01;
         return h == Upper ? std::max(value, m_lower + min_span) : std::min(value, m_upper - min_span);
+    }
+
+    // 把拖到 y 处的界值设上去; 离按下处不到 2 像素算没拖, 不改 (也不算手动)
+    void applyDrag(Handle h, double y) {
+        if (std::abs(y - m_pressY) < 2.0) return;
+        const double value = draggedValue(h, y);
+        if (h == Upper)
+            m_scaling->setYBounds(m_lower, value);
+        else
+            m_scaling->setYBounds(value, m_upper);
     }
 
     // 尖端顶在刻度主干上、指向画布的小三角
