@@ -101,6 +101,9 @@ void XAxisOnlyZoomer::setResetTriggers(ResetTriggers triggers, int key) {
 void XAxisOnlyZoomer::resetToFullView() {
     QwtPlot* plt = plot();
     if (!plt) return;
+    // 正拖着框选时 (例如拖到一半按了 Esc / 右键) 先取消这次选择, 否则松开左键时
+    // 这个框会按恢复后的刻度再放大一次
+    reset();
     // 横轴交回自动范围按全部数据重算, 再以此为缩放起点; 纵轴 (自动 / 固定) 一概不动
     plt->setAxisAutoScale(xAxis(), true);
     setZoomBase(true);
