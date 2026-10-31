@@ -181,3 +181,12 @@ if(MSVC)
     target_compile_options(test_combo_commit PRIVATE /utf-8 /wd4996)
 endif()
 add_test(NAME combo_commit COMMAND test_combo_commit)
+
+# 时间轴刻度文字：精简格式的进位规则与前一刻度查找。xTimeAxisFormat.h 只有头文件、只依赖 QtCore。
+add_executable(test_time_axis_format test_time_axis_format.cpp)
+target_include_directories(test_time_axis_format PRIVATE "${LIBQTEXT_DIR}")
+target_link_libraries(test_time_axis_format PRIVATE GTest::gtest GTest::gtest_main Qt6::Core)
+if(MSVC)
+    target_compile_options(test_time_axis_format PRIVATE /utf-8)
+endif()
+add_test(NAME time_axis_format COMMAND test_time_axis_format)

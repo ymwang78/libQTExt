@@ -35,6 +35,9 @@
     <ClInclude Include="xTheme.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="xTimeAxisFormat.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <QtMoc Include="xTableView.h">
