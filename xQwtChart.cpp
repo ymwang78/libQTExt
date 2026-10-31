@@ -555,11 +555,12 @@ void xQwtCurveScaling::scheduleFit() {
 }
 
 void xQwtCurveScaling::updateOverlay() {
-    // 绝对值模式下列在图例里的曲线少于 2 条时没什么可比的, 隐藏; 按量程模式下一直显示, 好切回去
+    // 单条曲线按自己的量程看也有用, 有曲线 (列在图例里的) 就显示; 一条都没有时隐藏,
+    // 按量程模式下一直显示, 好切回去
     int listed = 0;
     for (QwtPlotCurve* curve : curves())
         if (curve->testItemAttribute(QwtPlotItem::Legend)) ++listed;
-    const bool visible = m_mode == Mode::PerCurve || listed >= 2;
+    const bool visible = m_mode == Mode::PerCurve || listed >= 1;
     m_box->setVisible(visible);
     positionBox();
 

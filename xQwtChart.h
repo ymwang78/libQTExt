@@ -120,7 +120,7 @@ inline QwtPlotLegendItem* xQwtAttachCanvasLegend(
 // 多曲线图的两种纵坐标: 绝对值 (各曲线共用纵轴, 适合同一种量) / 按量程 (每条曲线按自己的
 // 量程拉伸成 0-100%, 适合量纲不同的量叠在一起看形状)。开启: new xQwtCurveScaling(plot)。
 //  - 画布右上角叠两个单选框切换, 右上角的叠加图例 (xQwtAttachCanvasLegend) 自动让到下面;
-//    绝对值模式下曲线少于 2 条时单选框隐藏。文字默认英文, 用 setModeLabels() 换。
+//    绝对值模式下一条曲线都没有时单选框隐藏, 单条曲线也能切。文字默认英文, 用 setModeLabels() 换。
 //  - 按量程时用代理包住每条曲线的数据, 读点时才换算, 不复制数据; 切回绝对值原样放回。
 //    之后挂上 (attach) 的曲线自动包上; 曲线挂上之后又替换了数据 (setSamples / setData),
 //    要调用 refresh()。纵轴固定 0-100、标题为 "%", 图例每项后面带上量程; 切回时恢复。
