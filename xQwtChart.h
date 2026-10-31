@@ -122,6 +122,8 @@ inline QwtPlotLegendItem* xQwtAttachCanvasLegend(
 // 量程拉伸成 0-100%, 适合量纲不同的量叠在一起看形状)。开启: new xQwtCurveScaling(plot)。
 //  - 画布右上角叠两个单选框切换, 右上角的叠加图例 (xQwtAttachCanvasLegend) 自动让到下面;
 //    绝对值模式下一条曲线都没有时单选框隐藏, 单条曲线也能切。文字默认英文, 用 setModeLabels() 换。
+//    只要绝对值的图 (各曲线是同一种量) 用 setModeSwitchVisible(false) 把单选框去掉, 仍可用
+//    下面的可见部分拟合和纵轴拖动把手。
 //  - 按量程时用代理包住每条曲线的数据, 读点时才换算, 不复制数据; 切回绝对值原样放回。
 //    之后挂上 (attach) 的曲线自动包上; 曲线挂上之后又替换了数据 (setSamples / setData),
 //    要调用 refresh()。纵轴固定 0-100、标题为 "%", 图例每项后面带上量程; 切回时恢复。
@@ -141,6 +143,10 @@ class xQwtCurveScaling : public QObject {
     Mode mode() const { return m_mode; }
     void setMode(Mode mode);
     void setModeLabels(const QString& absolute, const QString& perCurve);
+    // 画布右上角的模式单选框, 默认显示。关掉后不再显示, 右上角的叠加图例也不再为它让位;
+    // 不改当前模式, 使用方仍可调 setMode()。
+    void setModeSwitchVisible(bool on);
+    bool modeSwitchVisible() const { return m_switchVisible; }
 
     // 量程无效 (上限不大于下限) 等同 clearCurveRange()
     void setCurveRange(QwtPlotCurve* curve, const xValueRange& range);
@@ -197,7 +203,8 @@ class xQwtCurveScaling : public QObject {
     QFrame* m_box = nullptr;
     QRadioButton* m_absoluteButton = nullptr;
     QRadioButton* m_perCurveButton = nullptr;
-    QHash<const QwtPlotItem*, xValueRange> m_ranges;   // 使用方给的量程
+    bool m_switchVisible = true;
+    QHash<const QwtPlotItem*, xValueRange> m_ranges;  // 使用方给的量程
     QHash<const QwtPlotItem*, QwtText> m_titles;       // 按量程时改了标题的曲线的原标题
     QHash<const QwtPlotItem*, int> m_legendOffsets;    // 被让到单选框下面的图例原来的纵向偏移
     QwtText m_axisTitle;                               // 切到按量程前的纵轴标题与范围

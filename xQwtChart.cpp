@@ -597,6 +597,13 @@ void xQwtCurveScaling::setModeLabels(const QString& absolute, const QString& per
     updateOverlay();
 }
 
+void xQwtCurveScaling::setModeSwitchVisible(bool on) {
+    if (on == m_switchVisible) return;
+    m_switchVisible = on;
+    updateOverlay();
+    m_plot->replot();   // 叠加图例的纵向偏移跟着变
+}
+
 void xQwtCurveScaling::setCurveRange(QwtPlotCurve* curve, const xValueRange& range) {
     if (!curve) return;
     if (!range.isValid()) {
@@ -812,11 +819,11 @@ void xQwtCurveScaling::scheduleFit() {
 
 void xQwtCurveScaling::updateOverlay() {
     // 单条曲线按自己的量程看也有用, 有曲线 (列在图例里的) 就显示; 一条都没有时隐藏,
-    // 按量程模式下一直显示, 好切回去
+    // 按量程模式下一直显示, 好切回去; 使用方关掉了就一直不显示
     int listed = 0;
     for (QwtPlotCurve* curve : curves())
         if (curve->testItemAttribute(QwtPlotItem::Legend)) ++listed;
-    const bool visible = m_mode == Mode::PerCurve || listed >= 1;
+    const bool visible = m_switchVisible && (m_mode == Mode::PerCurve || listed >= 1);
     m_box->setVisible(visible);
     positionBox();
 
