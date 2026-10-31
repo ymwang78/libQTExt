@@ -268,6 +268,11 @@ class XAxisOnlyZoomer : public QwtPlotZoomer {
     void setMinSelectionPixels(int px) { m_minSelectionPixels = qMax(0, px); }
     int minSelectionPixels() const { return m_minSelectionPixels; }
 
+    // 框选出的横轴范围默认不小于 0 (时间轴、样本序号轴), 落到负值的部分整段挪回 0 起。
+    // 横轴本来就有负值的图 (例如滞后 -τ…+τ) 打开它, 框到哪就是哪; 跨度不小于 10、端点取整照旧。
+    void setAllowNegativeX(bool allow) { m_allowNegativeX = allow; }
+    bool allowNegativeX() const { return m_allowNegativeX; }
+
   protected:
     // Override to validate zoom rectangle - only allow X-axis changes
     bool accept(QPolygon& pa) const override;
@@ -297,6 +302,7 @@ class XAxisOnlyZoomer : public QwtPlotZoomer {
 
   private:
     int m_minSelectionPixels = 8;
+    bool m_allowNegativeX = false;
     bool m_resyncingZoomStackY = false;
     ResetTriggers m_resetTriggers = ResetTrigger::None;
     int m_resetKey = Qt::Key_Escape;
@@ -315,10 +321,18 @@ class XAxisOnlyMagnifier : public QwtPlotMagnifier {
   public:
     explicit XAxisOnlyMagnifier(QWidget* canvas);
 
+    // 同 XAxisOnlyZoomer::setAllowNegativeX: 默认缩放后的下界不小于 0 (整段右移),
+    // 横轴本来就有负值的图打开它。
+    void setAllowNegativeX(bool allow) { m_allowNegativeX = allow; }
+    bool allowNegativeX() const { return m_allowNegativeX; }
+
   protected:
     // Override to only magnify X-axis
     void rescale(double factor) override;
 
   signals:
     void xAxisRescaled(const QRectF& rect);  // Signal for synchronization
+
+  private:
+    bool m_allowNegativeX = false;
 };
