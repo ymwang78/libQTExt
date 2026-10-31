@@ -24,6 +24,7 @@
 #include <QColor>
 #include <QHash>
 #include <QPen>
+#include <QPointer>
 #include <QString>
 #include <cmath>  // for std::abs
 
@@ -158,6 +159,19 @@ class xQwtCurveScaling : public QObject {
     void setAbsoluteFitVisible(bool on);
     bool absoluteFitVisible() const { return m_fitVisible; }
 
+    // 纵轴上下界的拖动把手: 纵轴两端各一个小三角, 按住上下拖改上界 / 下界 (上界总大于下界,
+    // 拖动时提示当前值), 双击纵轴恢复自动。默认关闭。
+    void setYBoundHandles(bool on);
+    bool yBoundHandles() const { return m_handles != nullptr; }
+
+    // 手动定纵轴范围 (拖动把手也走这里)。手动之后纵轴不再自动重算 (绝对值模式下的可见部分
+    // 拟合暂停), 直到 resetYBounds() 或切换模式; 无效范围 (上界不大于下界) 忽略。
+    void setYBounds(double lower, double upper);
+    bool yBoundsManual() const { return m_manualY; }
+    // 纵轴回到当前模式的自动范围: 绝对值 = 按可见部分拟合 (打开时) 或全部数据自动, 按量程 = 0-100。
+    // 使用方可把"双击画布恢复全图" (XAxisOnlyZoomer::resetRequested) 接到这里, 横纵一起恢复。
+    void resetYBounds();
+
   signals:
     void modeChanged(xQwtCurveScaling::Mode mode);
 
@@ -192,6 +206,8 @@ class xQwtCurveScaling : public QObject {
     bool m_replotPending = false;
     bool m_fitVisible = false;
     bool m_fitPending = false;
+    bool m_manualY = false;          // 纵轴是手动定的 (拖动把手 / setYBounds)
+    QPointer<QWidget> m_handles;     // 纵轴上的拖动把手, 是纵轴控件的子控件
 };
 
 class xQwtPlot : public QwtPlot {

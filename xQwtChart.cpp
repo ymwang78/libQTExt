@@ -12,6 +12,7 @@
 
 #include <qwt_plot_curve.h>
 #include <qwt_scale_engine.h>
+#include <qwt_scale_map.h>
 #include <qwt_scale_widget.h>
 #include <qwt_series_data.h>
 
@@ -20,11 +21,14 @@
 #include <QHBoxLayout>
 #include <QKeyEvent>
 #include <QMouseEvent>
+#include <QPainter>
+#include <QPolygonF>
 #include <QRadioButton>
 #include <QSignalBlocker>
 #include <QStack>
 #include <QPen>
 #include <QTimer>
+#include <QToolTip>
 
 #include <algorithm>
 #include <limits>
@@ -77,6 +81,132 @@ xValueRange autoRange(const QwtPlotCurve* curve) {
     if (r.width() < 0.0 || r.height() < 0.0) return {};
     return xValueRange::fromData(r.top(), r.bottom());
 }
+
+// 纵轴上下界的拖动把手: 叠在纵轴控件 (QwtScaleWidget) 上的透明子控件, 两端各画一个指向画布的
+// 小三角。按住把手上下拖改上界 / 下界, 双击纵轴恢复自动。拖动期间一直按按下时的刻度映射换算,
+// 纵轴跟着变也不会反过来带偏鼠标对应的值。
+class xAxisBoundHandles : public QWidget {
+  public:
+    xAxisBoundHandles(QwtScaleWidget* axis, xQwtCurveScaling* scaling)
+        : QWidget(axis), m_axis(axis), m_scaling(scaling) {
+        setMouseTracking(true);   // 悬停在把手上换成上下拖动的光标
+        setGeometry(axis->rect());
+        axis->installEventFilter(this);
+        connect(axis, &QwtScaleWidget::scaleDivChanged, this, qOverload<>(&QWidget::update));
+        show();
+    }
+
+  protected:
+    bool eventFilter(QObject* watched, QEvent* event) override {
+        // 先看事件类型、只比指针: 纵轴控件析构时也会收到事件
+        if (event->type() == QEvent::Resize && watched == m_axis) setGeometry(m_axis->rect());
+        return QWidget::eventFilter(watched, event);
+    }
+
+    void paintEvent(QPaintEvent*) override {
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing);
+        p.setPen(Qt::NoPen);
+        for (Handle h : {Lower, Upper}) {
+            const bool active = h == m_drag || h == m_hover;
+            p.setBrush(QColor(0x2f, 0x6b, 0xed, active ? 255 : 160));
+            p.drawPolygon(triangle(h));
+        }
+    }
+
+    void mousePressEvent(QMouseEvent* event) override {
+        m_drag = event->button() == Qt::LeftButton ? handleAt(event->position().toPoint()) : None;
+        if (m_drag == None) {
+            QWidget::mousePressEvent(event);
+            return;
+        }
+        m_map = m_axis->scaleDraw()->scaleMap();
+        const QwtInterval iv = m_axis->scaleDraw()->scaleDiv().interval().normalized();
+        m_lower = iv.minValue();
+        m_upper = iv.maxValue();
+        update();
+    }
+
+    void mouseMoveEvent(QMouseEvent* event) override {
+        const QPoint pos = event->position().toPoint();
+        if (m_drag == None) {
+            const Handle h = handleAt(pos);
+            if (h != m_hover) {
+                m_hover = h;
+                setCursor(h == None ? Qt::ArrowCursor : Qt::SizeVerCursor);
+                update();
+            }
+            return;
+        }
+        // 上界始终比下界大出原跨度的 1%, 拖不反
+        const double value = m_map.invTransform(pos.y());
+        const double min_span = (m_upper - m_lower) * 0.01;
+        double lower = m_lower, upper = m_upper;
+        if (m_drag == Upper)
+            upper = std::max(value, m_lower + min_span);
+        else
+            lower = std::min(value, m_upper - min_span);
+        m_scaling->setYBounds(lower, upper);
+        QToolTip::showText(event->globalPosition().toPoint(),
+                           QString::number(m_drag == Upper ? upper : lower, 'g', 6), this);
+    }
+
+    void mouseReleaseEvent(QMouseEvent* event) override {
+        if (m_drag == None) {
+            QWidget::mouseReleaseEvent(event);
+            return;
+        }
+        m_drag = None;
+        QToolTip::hideText();
+        update();
+    }
+
+    void mouseDoubleClickEvent(QMouseEvent* event) override {
+        if (event->button() == Qt::LeftButton) m_scaling->resetYBounds();
+    }
+
+    void leaveEvent(QEvent* event) override {
+        if (m_hover != None) {
+            m_hover = None;
+            unsetCursor();
+            update();
+        }
+        QWidget::leaveEvent(event);
+    }
+
+  private:
+    enum Handle { None, Lower, Upper };
+
+    // 把手在控件里的纵坐标: 纵轴那一端的位置
+    double endY(Handle h) const {
+        const QwtInterval iv = m_axis->scaleDraw()->scaleDiv().interval().normalized();
+        return m_axis->scaleDraw()->scaleMap().transform(h == Upper ? iv.maxValue() : iv.minValue());
+    }
+
+    Handle handleAt(const QPoint& pos) const {
+        for (Handle h : {Upper, Lower})
+            if (std::abs(pos.y() - endY(h)) <= 7.0) return h;
+        return None;
+    }
+
+    // 尖端顶在刻度主干上、指向画布的小三角
+    QPolygonF triangle(Handle h) const {
+        const double y = endY(h);
+        const double backbone = m_axis->scaleDraw()->pos().x();
+        const double dir = m_axis->alignment() == QwtScaleDraw::RightScale ? -1.0 : 1.0;
+        const double tip = backbone - dir * 1.0;
+        const double base = backbone - dir * 10.0;
+        return QPolygonF{QPointF(base, y - 5.5), QPointF(base, y + 5.5), QPointF(tip, y)};
+    }
+
+    QwtScaleWidget* m_axis;
+    xQwtCurveScaling* m_scaling;
+    Handle m_drag = None;
+    Handle m_hover = None;
+    QwtScaleMap m_map;   // 按下时的刻度映射
+    double m_lower = 0.0;
+    double m_upper = 1.0;
+};
 
 }  // namespace
 
@@ -349,15 +479,18 @@ xQwtCurveScaling::~xQwtCurveScaling() = default;
 void xQwtCurveScaling::setMode(Mode mode) {
     if (mode == m_mode) return;
     m_mode = mode;
+    // 切换模式即回到该模式的默认纵轴, 手动拖的范围作废
+    const bool was_manual = m_manualY;
+    m_manualY = false;
     {
         const QSignalBlocker block_absolute(m_absoluteButton);
         const QSignalBlocker block_per_curve(m_perCurveButton);
         (mode == Mode::PerCurve ? m_perCurveButton : m_absoluteButton)->setChecked(true);
     }
     if (mode == Mode::PerCurve) {
-        // 记下切换前的纵轴, 切回绝对值时原样恢复
+        // 记下切换前的纵轴, 切回绝对值时原样恢复 (手动拖的不算, 按自动记)
         m_axisTitle = m_plot->axisTitle(m_yAxis);
-        m_axisAutoScale = m_plot->axisAutoScale(m_yAxis);
+        m_axisAutoScale = was_manual || m_plot->axisAutoScale(m_yAxis);
         m_axisInterval = m_plot->axisInterval(m_yAxis);
         for (QwtPlotCurve* curve : curves()) applyToCurve(curve);
     } else {
@@ -524,8 +657,34 @@ void xQwtCurveScaling::applyAxis() {
     }
 }
 
+void xQwtCurveScaling::setYBoundHandles(bool on) {
+    if (on == (m_handles != nullptr)) return;
+    if (on) {
+        m_handles = new xAxisBoundHandles(m_plot->axisWidget(m_yAxis), this);
+    } else {
+        delete m_handles.data();
+        m_handles = nullptr;
+    }
+}
+
+void xQwtCurveScaling::setYBounds(double lower, double upper) {
+    if (!(std::isfinite(lower) && std::isfinite(upper) && upper > lower)) return;
+    m_manualY = true;
+    m_plot->setAxisScale(m_yAxis, lower, upper);
+    scheduleReplot();
+}
+
+void xQwtCurveScaling::resetYBounds() {
+    m_manualY = false;
+    if (m_mode == Mode::PerCurve)
+        m_plot->setAxisScale(m_yAxis, 0.0, 100.0);
+    else if (!(m_fitVisible && applyVisibleFit()))
+        m_plot->setAxisAutoScale(m_yAxis, true);
+    m_plot->replot();
+}
+
 bool xQwtCurveScaling::applyVisibleFit() {
-    if (!m_fitVisible || m_mode != Mode::Absolute) return false;
+    if (!m_fitVisible || m_mode != Mode::Absolute || m_manualY) return false;   // 手动定的不动
     // 横轴当前范围内、显示中的曲线的点; 时间序列量大, 但只是顺序扫一遍取最小 / 最大值
     const QwtInterval visible = m_plot->axisInterval(QwtAxis::XBottom).normalized();
     double lower = std::numeric_limits<double>::infinity();
@@ -550,7 +709,7 @@ bool xQwtCurveScaling::applyVisibleFit() {
 }
 
 void xQwtCurveScaling::scheduleFit() {
-    if (!m_fitVisible || m_mode != Mode::Absolute || m_fitPending) return;
+    if (!m_fitVisible || m_mode != Mode::Absolute || m_manualY || m_fitPending) return;
     // 排到下一轮: 横轴的 scaleDivChanged 是在 replot 当中发的, 不能在里面再 replot
     m_fitPending = true;
     QTimer::singleShot(0, this, [this]() {
