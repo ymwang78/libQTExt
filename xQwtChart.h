@@ -16,16 +16,23 @@
 #include <qwt_plot_zoomer.h>
 #include <qwt_plot_magnifier.h>
 #include <qwt_scale_div.h>
+#include <qwt_interval.h>
 #include <qwt_date_scale_draw.h>
 #include <qwt_date_scale_engine.h>
 #include <qwt_plot_legenditem.h>
 #include <QBrush>
 #include <QColor>
+#include <QHash>
 #include <QPen>
 #include <QString>
 #include <cmath>  // for std::abs
 
 #include "xTimeAxisFormat.h"
+#include "xValueRange.h"
+
+class QFrame;
+class QRadioButton;
+class QwtPlotCurve;
 
 class xQwtScaleDraw : public QwtScaleDraw {
   public:
@@ -109,6 +116,71 @@ inline QwtPlotLegendItem* xQwtAttachCanvasLegend(
     legend->attach(plot);
     return legend;
 }
+
+// 多曲线图的两种纵坐标: 绝对值 (各曲线共用纵轴, 适合同一种量) / 按量程 (每条曲线按自己的
+// 量程拉伸成 0-100%, 适合量纲不同的量叠在一起看形状)。开启: new xQwtCurveScaling(plot)。
+//  - 画布右上角叠两个单选框切换, 右上角的叠加图例 (xQwtAttachCanvasLegend) 自动让到下面;
+//    绝对值模式下曲线少于 2 条时单选框隐藏。文字默认英文, 用 setModeLabels() 换。
+//  - 按量程时用代理包住每条曲线的数据, 读点时才换算, 不复制数据; 切回绝对值原样放回。
+//    之后挂上 (attach) 的曲线自动包上; 曲线挂上之后又替换了数据 (setSamples / setData),
+//    要调用 refresh()。纵轴固定 0-100、标题为 "%", 图例每项后面带上量程; 切回时恢复。
+//  - 量程由使用方 setCurveRange() 给 (几条曲线要同一量程就设同一个值); 没给的按自己数据的
+//    最小 / 最大值外扩 5%。选区之类的百分比用 toValue() 换回原值。
+//  - 只处理挂在 yAxis 上的 QwtPlotCurve; 怎么编辑量程、量程从哪来由使用方决定。
+class xQwtCurveScaling : public QObject {
+    Q_OBJECT
+
+  public:
+    enum class Mode { Absolute, PerCurve };
+    Q_ENUM(Mode)
+
+    explicit xQwtCurveScaling(QwtPlot* plot, QwtAxisId yAxis = QwtAxis::YLeft);
+    ~xQwtCurveScaling() override;
+
+    Mode mode() const { return m_mode; }
+    void setMode(Mode mode);
+    void setModeLabels(const QString& absolute, const QString& perCurve);
+
+    // 量程无效 (上限不大于下限) 等同 clearCurveRange()
+    void setCurveRange(QwtPlotCurve* curve, const xValueRange& range);
+    void clearCurveRange(QwtPlotCurve* curve);
+    // 生效的量程: 使用方给的, 否则由曲线数据算出
+    xValueRange curveRange(const QwtPlotCurve* curve) const;
+    // 按量程模式下的纵坐标 (百分比) → 这条曲线的原值
+    double toValue(const QwtPlotCurve* curve, double percent) const;
+
+    // 曲线数据在挂上之后被替换时调用: 重新包装、重算自动量程
+    void refresh();
+
+  signals:
+    void modeChanged(xQwtCurveScaling::Mode mode);
+
+  protected:
+    bool eventFilter(QObject* watched, QEvent* event) override;
+
+  private:
+    void onItemAttached(QwtPlotItem* item, bool on);
+    QList<QwtPlotCurve*> curves() const;
+    void applyToCurve(QwtPlotCurve* curve);
+    void restoreCurve(QwtPlotCurve* curve);
+    void applyAxis();
+    void updateOverlay();
+    void scheduleReplot();
+
+    QwtPlot* m_plot;
+    QwtAxisId m_yAxis;
+    Mode m_mode = Mode::Absolute;
+    QFrame* m_box = nullptr;
+    QRadioButton* m_absoluteButton = nullptr;
+    QRadioButton* m_perCurveButton = nullptr;
+    QHash<const QwtPlotItem*, xValueRange> m_ranges;   // 使用方给的量程
+    QHash<const QwtPlotItem*, QwtText> m_titles;       // 按量程时改了标题的曲线的原标题
+    QHash<const QwtPlotItem*, int> m_legendOffsets;    // 被让到单选框下面的图例原来的纵向偏移
+    QwtText m_axisTitle;                               // 切到按量程前的纵轴标题与范围
+    bool m_axisAutoScale = true;
+    QwtInterval m_axisInterval;
+    bool m_replotPending = false;
+};
 
 class xQwtPlot : public QwtPlot {
     Q_OBJECT
