@@ -203,7 +203,24 @@ class XAxisOnlyZoomer : public QwtPlotZoomer {
     Q_OBJECT
 
   public:
+    // 恢复全图的触发方式, 可组合 (DoubleClick | KeyPress ...)。
+    enum class ResetTrigger { None = 0x0, DoubleClick = 0x1, RightClick = 0x2, KeyPress = 0x4 };
+    Q_DECLARE_FLAGS(ResetTriggers, ResetTrigger)
+
     explicit XAxisOnlyZoomer(QWidget* canvas);
+
+    // 哪些操作恢复全图 (resetToFullView)。默认 None: 与以前一样, 双击只发 resetRequested,
+    // 由使用方自己恢复, 右键不响应。打开任一方式后:
+    //  - 从缩放起点第一次框选放大时, 先把起点更新成当前视图, Qwt 自带的中键后退 / 加减号
+    //    才退回真实视图, 不会退到构造时 (曲线还没画) 记下的默认范围;
+    //  - RightClick 重新打开本类默认禁用的右键, 与画布右键菜单冲突由使用方权衡;
+    //  - KeyPress 要画布有焦点 (点一下或滚一下滚轮), 该键被吃掉, 例如 Esc 不再传给外层弹窗。
+    // 拖选模式等把缩放器 setEnabled(false) 时这些都不响应。
+    void setResetTriggers(ResetTriggers triggers, int key = Qt::Key_Escape);
+    ResetTriggers resetTriggers() const { return m_resetTriggers; }
+
+    // 恢复全图: 横轴按全部数据自动范围, 缩放起点重设为全图, 纵轴不动; 之后发 resetRequested。
+    void resetToFullView();
 
     // 框选最小像素宽度阈值。鼠标在画布上单击或仅做微小拖动（拖出来的橡皮筋
     // 矩形宽度 < 该值）时，accept() 会直接返回 false，从而忽略这次缩放，
@@ -226,17 +243,26 @@ class XAxisOnlyZoomer : public QwtPlotZoomer {
     // the live axis so QwtPlotZoomer::zoomed does not leak a stale Y range.
     void rescale() override;
 
-    // 在画布上双击鼠标 → 发出 resetRequested 信号（外部 chart 据此恢复原始范围）
+    // 在画布上双击鼠标 → 发出 resetRequested 信号（外部 chart 据此恢复原始范围）;
+    // 打开了 DoubleClick 时先恢复全图
     void widgetMouseDoubleClickEvent(QMouseEvent* event) override;
+    // 打开了 RightClick 时右键松开恢复全图
+    void widgetMouseReleaseEvent(QMouseEvent* event) override;
+    // 打开了 KeyPress 时在画布的事件过滤里接住那个键并吃掉, 不让它再传给外层弹窗
+    bool eventFilter(QObject* object, QEvent* event) override;
 
   signals:
     void xAxisZoomed(const QRectF& rect);  // Signal for synchronization
-    void resetRequested();                 // 用户双击画布请求恢复原始视图
+    void resetRequested();                 // 用户双击画布请求恢复原始视图 / 已恢复全图
 
   private:
     int m_minSelectionPixels = 8;
     bool m_resyncingZoomStackY = false;
+    ResetTriggers m_resetTriggers = ResetTrigger::None;
+    int m_resetKey = Qt::Key_Escape;
 };
+
+Q_DECLARE_OPERATORS_FOR_FLAGS(XAxisOnlyZoomer::ResetTriggers)
 
 
 /**
