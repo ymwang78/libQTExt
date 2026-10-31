@@ -11,6 +11,8 @@
 #include "xQwtChart.h"
 
 #include <qwt_plot_curve.h>
+#include <qwt_scale_engine.h>
+#include <qwt_scale_widget.h>
 #include <qwt_series_data.h>
 
 #include <QEvent>
@@ -25,6 +27,7 @@
 #include <QTimer>
 
 #include <algorithm>
+#include <limits>
 
 namespace {
 
@@ -332,6 +335,10 @@ xQwtCurveScaling::xQwtCurveScaling(QwtPlot* plot, QwtAxisId yAxis)
             [this](bool on) { setMode(on ? Mode::PerCurve : Mode::Absolute); });
 
     connect(plot, &QwtPlot::itemAttached, this, &xQwtCurveScaling::onItemAttached);
+    // 横轴缩放 / 平移后, 打开了 setAbsoluteFitVisible 时按可见部分重定纵轴
+    connect(plot->axisWidget(QwtAxis::XBottom), &QwtScaleWidget::scaleDivChanged, this, [this]() {
+        if (m_fitVisible && m_mode == Mode::Absolute) scheduleFit();
+    });
     m_canvas->installEventFilter(this);
     updateOverlay();
 }
@@ -408,6 +415,19 @@ void xQwtCurveScaling::refresh() {
     }
     updateOverlay();
     scheduleReplot();
+    scheduleFit();
+}
+
+void xQwtCurveScaling::setAbsoluteFitVisible(bool on) {
+    if (on == m_fitVisible) return;
+    m_fitVisible = on;
+    if (m_mode != Mode::Absolute) return;   // 按量程模式下纵轴固定, 切回绝对值时再按它办
+    if (on) {
+        scheduleFit();
+    } else {
+        m_plot->setAxisAutoScale(m_yAxis, true);
+        scheduleReplot();
+    }
 }
 
 bool xQwtCurveScaling::eventFilter(QObject* watched, QEvent* event) {
@@ -434,12 +454,14 @@ void xQwtCurveScaling::onItemAttached(QwtPlotItem* item, bool on) {
         m_titles.remove(item);
         m_legendOffsets.remove(item);
         updateOverlay();
+        scheduleFit();   // 少了曲线, 可见部分的范围可能变了
         return;
     }
     if (rtti == QwtPlotItem::Rtti_PlotCurve && m_mode == Mode::PerCurve && item->yAxis() == m_yAxis) {
         applyToCurve(static_cast<QwtPlotCurve*>(item));
         scheduleReplot();
     }
+    if (rtti == QwtPlotItem::Rtti_PlotCurve) scheduleFit();
     if (rtti == QwtPlotItem::Rtti_PlotCurve || rtti == QwtPlotItem::Rtti_PlotLegend) updateOverlay();
 }
 
@@ -489,11 +511,47 @@ void xQwtCurveScaling::applyAxis() {
         m_plot->setAxisScale(m_yAxis, 0.0, 100.0);
     } else {
         m_plot->setAxisTitle(m_yAxis, m_axisTitle);
+        if (m_fitVisible && fitVisible()) return;   // 按可见部分定; 可见范围里没有点就照原样恢复
         if (m_axisAutoScale)
             m_plot->setAxisAutoScale(m_yAxis, true);
         else
             m_plot->setAxisScale(m_yAxis, m_axisInterval.minValue(), m_axisInterval.maxValue());
     }
+}
+
+bool xQwtCurveScaling::fitVisible() {
+    if (!m_fitVisible || m_mode != Mode::Absolute) return false;
+    // 横轴当前范围内、显示中的曲线的点; 时间序列量大, 但只是顺序扫一遍取最小 / 最大值
+    const QwtInterval visible = m_plot->axisInterval(QwtAxis::XBottom).normalized();
+    double lower = std::numeric_limits<double>::infinity();
+    double upper = -std::numeric_limits<double>::infinity();
+    for (QwtPlotCurve* curve : curves()) {
+        if (!curve->isVisible() || curve->xAxis() != QwtAxis::XBottom) continue;
+        const QwtSeriesData<QPointF>* data = curve->data();
+        const size_t n = data ? data->size() : 0;
+        for (size_t i = 0; i < n; ++i) {
+            const QPointF p = data->sample(i);
+            if (p.x() < visible.minValue() || p.x() > visible.maxValue() || !std::isfinite(p.y())) continue;
+            lower = std::min(lower, p.y());
+            upper = std::max(upper, p.y());
+        }
+    }
+    if (!(lower <= upper)) return false;
+    // 照 Qwt 自动范围的做法交给纵轴的刻度引擎取整, 刻度和边界都是整齐的数
+    double step = 0.0;
+    m_plot->axisScaleEngine(m_yAxis)->autoScale(m_plot->axisMaxMajor(m_yAxis), lower, upper, step);
+    m_plot->setAxisScale(m_yAxis, lower, upper, step);
+    return true;
+}
+
+void xQwtCurveScaling::scheduleFit() {
+    if (!m_fitVisible || m_mode != Mode::Absolute || m_fitPending) return;
+    // 排到下一轮: 横轴的 scaleDivChanged 是在 replot 当中发的, 不能在里面再 replot
+    m_fitPending = true;
+    QTimer::singleShot(0, this, [this]() {
+        m_fitPending = false;
+        if (fitVisible()) m_plot->replot();
+    });
 }
 
 void xQwtCurveScaling::updateOverlay() {

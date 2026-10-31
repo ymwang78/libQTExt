@@ -152,6 +152,12 @@ class xQwtCurveScaling : public QObject {
     // 曲线数据在挂上之后被替换时调用: 重新包装、重算自动量程
     void refresh();
 
+    // 绝对值模式下纵轴按可见部分 (横轴 xBottom 当前范围内的点) 定范围, 缩放 / 平移横轴、
+    // 曲线增减后跟着重算 (按纵轴刻度引擎取整); 可见范围内没有点时纵轴不动。默认关闭:
+    // 纵轴照常由 Qwt 按全部数据自动定。按量程模式不受影响 (固定 0-100)。
+    void setAbsoluteFitVisible(bool on);
+    bool absoluteFitVisible() const { return m_fitVisible; }
+
   signals:
     void modeChanged(xQwtCurveScaling::Mode mode);
 
@@ -167,6 +173,8 @@ class xQwtCurveScaling : public QObject {
     void updateOverlay();
     void positionBox();
     void scheduleReplot();
+    bool fitVisible();   // 按可见部分设好纵轴返回 true (不 replot); 没有可见点返回 false
+    void scheduleFit();
 
     QwtPlot* m_plot;
     QwtAxisId m_yAxis;
@@ -182,6 +190,8 @@ class xQwtCurveScaling : public QObject {
     bool m_axisAutoScale = true;
     QwtInterval m_axisInterval;
     bool m_replotPending = false;
+    bool m_fitVisible = false;
+    bool m_fitPending = false;
 };
 
 class xQwtPlot : public QwtPlot {
