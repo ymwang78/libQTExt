@@ -248,6 +248,13 @@ class XAxisOnlyZoomer : public QwtPlotZoomer {
     // 恢复全图: 横轴按全部数据自动范围, 缩放起点重设为全图, 纵轴不动; 之后发 resetRequested。
     void resetToFullView();
 
+    // 横轴左右界的拖动把手 (同 xQwtCurveScaling::setYBoundHandles): 横轴两端各一个小三角, 按住
+    // 左右拖, 三角跟着鼠标、那一界实时改、画图区跟着变, 提示当前界值 (日期轴显示成日期时间);
+    // 拖完记进缩放记录 (中键 / 减号可退回), 并发 xAxisZoomed; 双击横轴 = resetToFullView()。
+    // 默认关闭。把手不受 setEnabled() 影响, 拖选模式下也能用。
+    void setXBoundHandles(bool on);
+    bool xBoundHandles() const { return m_xHandles != nullptr; }
+
     // 框选最小像素宽度阈值。鼠标在画布上单击或仅做微小拖动（拖出来的橡皮筋
     // 矩形宽度 < 该值）时，accept() 会直接返回 false，从而忽略这次缩放，
     // 避免"轻轻一点就把图缩到一小段"的误触。默认 8 像素，0 = 关闭该过滤。
@@ -286,6 +293,7 @@ class XAxisOnlyZoomer : public QwtPlotZoomer {
     bool m_resyncingZoomStackY = false;
     ResetTriggers m_resetTriggers = ResetTrigger::None;
     int m_resetKey = Qt::Key_Escape;
+    QPointer<QWidget> m_xHandles;   // 横轴上的拖动把手, 是横轴控件的子控件
 };
 
 Q_DECLARE_OPERATORS_FOR_FLAGS(XAxisOnlyZoomer::ResetTriggers)
