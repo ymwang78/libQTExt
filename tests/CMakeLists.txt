@@ -190,3 +190,12 @@ if(MSVC)
     target_compile_options(test_time_axis_format PRIVATE /utf-8)
 endif()
 add_test(NAME time_axis_format COMMAND test_time_axis_format)
+
+# 量程与百分比互换：xQwtCurveScaling 按量程画曲线的换算。xValueRange.h 只有头文件、不依赖 Qt。
+add_executable(test_value_range test_value_range.cpp)
+target_include_directories(test_value_range PRIVATE "${LIBQTEXT_DIR}")
+target_link_libraries(test_value_range PRIVATE GTest::gtest GTest::gtest_main)
+if(MSVC)
+    target_compile_options(test_value_range PRIVATE /utf-8)
+endif()
+add_test(NAME value_range COMMAND test_value_range)

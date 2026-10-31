@@ -130,6 +130,7 @@
     <ClInclude Include="xTheme.h" />
     <ClInclude Include="xTimeAxisFormat.h" />
     <ClInclude Include="xTreeItem.h" />
+    <ClInclude Include="xValueRange.h" />
     <QtMoc Include="xTableHeader.h" />
     <QtMoc Include="xTableEditor.h" />
     <QtMoc Include="xTableView.h" />
