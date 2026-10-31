@@ -83,8 +83,8 @@ xValueRange autoRange(const QwtPlotCurve* curve) {
 }
 
 // 纵轴上下界的拖动把手: 叠在纵轴控件 (QwtScaleWidget) 上的透明子控件, 两端各画一个指向画布的
-// 小三角。按住把手上下拖改上界 / 下界, 双击纵轴恢复自动。拖动期间一直按按下时的刻度映射换算,
-// 纵轴跟着变也不会反过来带偏鼠标对应的值。
+// 小三角。按住把手上下拖, 三角跟着鼠标走并提示松手后的界值, 松手才改上界 / 下界; 只点不拖不改。
+// 双击纵轴恢复自动。界值按按下时的刻度映射换算。
 class xAxisBoundHandles : public QWidget {
   public:
     xAxisBoundHandles(QwtScaleWidget* axis, xQwtCurveScaling* scaling)
@@ -110,7 +110,9 @@ class xAxisBoundHandles : public QWidget {
         for (Handle h : {Lower, Upper}) {
             const bool active = h == m_drag || h == m_hover;
             p.setBrush(QColor(0x2f, 0x6b, 0xed, active ? 255 : 160));
-            p.drawPolygon(triangle(h));
+            // 拖着的那个画在鼠标处 (拖出控件就停在边上)
+            const double y = h == m_drag ? std::clamp(m_dragY, 0.0, double(height())) : endY(h);
+            p.drawPolygon(triangle(y));
         }
     }
 
@@ -124,6 +126,8 @@ class xAxisBoundHandles : public QWidget {
         const QwtInterval iv = m_axis->scaleDraw()->scaleDiv().interval().normalized();
         m_lower = iv.minValue();
         m_upper = iv.maxValue();
+        m_pressY = event->position().y();
+        m_dragY = endY(m_drag);
         update();
     }
 
@@ -138,17 +142,11 @@ class xAxisBoundHandles : public QWidget {
             }
             return;
         }
-        // 上界始终比下界大出原跨度的 1%, 拖不反
-        const double value = m_map.invTransform(pos.y());
-        const double min_span = (m_upper - m_lower) * 0.01;
-        double lower = m_lower, upper = m_upper;
-        if (m_drag == Upper)
-            upper = std::max(value, m_lower + min_span);
-        else
-            lower = std::min(value, m_upper - min_span);
-        m_scaling->setYBounds(lower, upper);
-        QToolTip::showText(event->globalPosition().toPoint(),
-                           QString::number(m_drag == Upper ? upper : lower, 'g', 6), this);
+        // 只挪三角、提示松手后的值, 纵轴先不动
+        const double value = draggedValue(m_drag, pos.y());
+        m_dragY = m_map.transform(value);
+        update();
+        QToolTip::showText(event->globalPosition().toPoint(), QString::number(value, 'g', 6), this);
     }
 
     void mouseReleaseEvent(QMouseEvent* event) override {
@@ -156,9 +154,17 @@ class xAxisBoundHandles : public QWidget {
             QWidget::mouseReleaseEvent(event);
             return;
         }
+        const double y = event->position().y();
+        const Handle dragged = m_drag;
         m_drag = None;
         QToolTip::hideText();
         update();
+        if (std::abs(y - m_pressY) < 2.0) return;   // 只是点了一下
+        const double value = draggedValue(dragged, y);
+        if (dragged == Upper)
+            m_scaling->setYBounds(m_lower, value);
+        else
+            m_scaling->setYBounds(value, m_upper);
     }
 
     void mouseDoubleClickEvent(QMouseEvent* event) override {
@@ -189,9 +195,15 @@ class xAxisBoundHandles : public QWidget {
         return None;
     }
 
+    // 鼠标纵坐标对应的、正在拖的那一界的新值: 上界始终比下界大出原跨度的 1%, 拖不反
+    double draggedValue(Handle h, double y) const {
+        const double value = m_map.invTransform(y);
+        const double min_span = (m_upper - m_lower) * 0.01;
+        return h == Upper ? std::max(value, m_lower + min_span) : std::min(value, m_upper - min_span);
+    }
+
     // 尖端顶在刻度主干上、指向画布的小三角
-    QPolygonF triangle(Handle h) const {
-        const double y = endY(h);
+    QPolygonF triangle(double y) const {
         const double backbone = m_axis->scaleDraw()->pos().x();
         const double dir = m_axis->alignment() == QwtScaleDraw::RightScale ? -1.0 : 1.0;
         const double tip = backbone - dir * 1.0;
@@ -206,6 +218,8 @@ class xAxisBoundHandles : public QWidget {
     QwtScaleMap m_map;   // 按下时的刻度映射
     double m_lower = 0.0;
     double m_upper = 1.0;
+    double m_pressY = 0.0;   // 按下时鼠标的纵坐标
+    double m_dragY = 0.0;    // 拖着的三角现在画在哪
 };
 
 }  // namespace
