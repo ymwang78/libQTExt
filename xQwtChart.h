@@ -173,7 +173,7 @@ class xQwtCurveScaling : public QObject {
     void updateOverlay();
     void positionBox();
     void scheduleReplot();
-    bool fitVisible();   // 按可见部分设好纵轴返回 true (不 replot); 没有可见点返回 false
+    bool applyVisibleFit();   // 按可见部分设好纵轴返回 true (不 replot); 没有可见点返回 false
     void scheduleFit();
 
     QwtPlot* m_plot;

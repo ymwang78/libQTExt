@@ -421,7 +421,12 @@ void xQwtCurveScaling::refresh() {
 void xQwtCurveScaling::setAbsoluteFitVisible(bool on) {
     if (on == m_fitVisible) return;
     m_fitVisible = on;
-    if (m_mode != Mode::Absolute) return;   // 按量程模式下纵轴固定, 切回绝对值时再按它办
+    if (m_mode != Mode::Absolute) {
+        // 按量程模式下纵轴固定 0-100, 切回绝对值时再按它办。关掉时把切回用的存档改成自动范围:
+        // 存档可能是拟合留下的固定区间, 照它恢复会把窗外的点裁掉
+        if (!on) m_axisAutoScale = true;
+        return;
+    }
     if (on) {
         scheduleFit();
     } else {
@@ -511,7 +516,7 @@ void xQwtCurveScaling::applyAxis() {
         m_plot->setAxisScale(m_yAxis, 0.0, 100.0);
     } else {
         m_plot->setAxisTitle(m_yAxis, m_axisTitle);
-        if (m_fitVisible && fitVisible()) return;   // 按可见部分定; 可见范围里没有点就照原样恢复
+        if (m_fitVisible && applyVisibleFit()) return;   // 按可见部分定; 可见范围里没有点就照原样恢复
         if (m_axisAutoScale)
             m_plot->setAxisAutoScale(m_yAxis, true);
         else
@@ -519,7 +524,7 @@ void xQwtCurveScaling::applyAxis() {
     }
 }
 
-bool xQwtCurveScaling::fitVisible() {
+bool xQwtCurveScaling::applyVisibleFit() {
     if (!m_fitVisible || m_mode != Mode::Absolute) return false;
     // 横轴当前范围内、显示中的曲线的点; 时间序列量大, 但只是顺序扫一遍取最小 / 最大值
     const QwtInterval visible = m_plot->axisInterval(QwtAxis::XBottom).normalized();
@@ -550,7 +555,7 @@ void xQwtCurveScaling::scheduleFit() {
     m_fitPending = true;
     QTimer::singleShot(0, this, [this]() {
         m_fitPending = false;
-        if (fitVisible()) m_plot->replot();
+        if (applyVisibleFit()) m_plot->replot();
     });
 }
 
