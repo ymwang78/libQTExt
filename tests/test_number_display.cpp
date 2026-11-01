@@ -28,6 +28,7 @@
 #include <QStandardItemModel>
 #include <QVariant>
 
+#include <limits>
 #include <memory>
 #include <string>
 
@@ -104,6 +105,85 @@ TEST_F(NumberDisplay, FixFloatModeKeepsRequestedDecimalPlaces) {
 TEST_F(NumberDisplay, GeneralModeCountsSignificantDigitsAndFallsBackToEight) {
     EXPECT_EQ(displayed(12.3456789, xTableView::MODE_GENERAL, 0), "12.345679");
     EXPECT_EQ(displayed(12.3456789, xTableView::MODE_GENERAL, 3), "12.3");
+}
+
+TEST_F(NumberDisplay, FixWidthModeMatchesVbFixedLengthDisplay) {
+    // 期望值就是 VB 定长显示(值, 7) 的结果：小数位数 = 7 - 负号 - 整数位数 - 小数点。
+    EXPECT_EQ(displayed(0.823818323275, xTableView::MODE_FIXWIDTH, 7), "0.82382");
+    EXPECT_EQ(displayed(134.752759897, xTableView::MODE_FIXWIDTH, 7), "134.753");
+    EXPECT_EQ(displayed(0.0412, xTableView::MODE_FIXWIDTH, 7), "0.04120");
+    EXPECT_EQ(displayed(-0.5367, xTableView::MODE_FIXWIDTH, 7), "-0.5367");
+    EXPECT_EQ(displayed(85.0, xTableView::MODE_FIXWIDTH, 7), "85.0000");
+    EXPECT_EQ(displayed(1234.5678, xTableView::MODE_FIXWIDTH, 7), "1234.57");
+    EXPECT_EQ(displayed(1234567.89, xTableView::MODE_FIXWIDTH, 7), "1234568");
+    EXPECT_EQ(displayed(0.0, xTableView::MODE_FIXWIDTH, 7), "0.00000");
+}
+
+TEST_F(NumberDisplay, FixWidthModeSwitchesToScientificForLongOrTinyValues) {
+    // 整数部分放不下：正数 >= 10^7，负数 <= -10^6（负号占一位）。
+    EXPECT_EQ(displayed(12345678.9, xTableView::MODE_FIXWIDTH, 7), "1.23e+7");
+    EXPECT_EQ(displayed(-1234567.0, xTableView::MODE_FIXWIDTH, 7), "-1.2e+6");
+    // 数太小：正数 < 0.001，负数 > -0.01。
+    EXPECT_EQ(displayed(0.000123456, xTableView::MODE_FIXWIDTH, 7), "1.23e-4");
+    EXPECT_EQ(displayed(0.00123456, xTableView::MODE_FIXWIDTH, 7), "0.00123");
+    EXPECT_EQ(displayed(-0.005, xTableView::MODE_FIXWIDTH, 7), "-5.0e-3");
+    // 两位指数少留一位小数，同 VB 的 "0.0e+00"。
+    EXPECT_EQ(displayed(1.5e15, xTableView::MODE_FIXWIDTH, 7), "1.5e+15");
+    EXPECT_EQ(displayed(2.5e-12, xTableView::MODE_FIXWIDTH, 7), "2.5e-12");
+}
+
+TEST_F(NumberDisplay, FixWidthModeKeepsTheWidthWhenRoundingCarries) {
+    // VB 在这里会多出一个字符；进位后少留一位小数。
+    EXPECT_EQ(displayed(99.99996, xTableView::MODE_FIXWIDTH, 7), "100.000");
+    EXPECT_EQ(displayed(-9.999996, xTableView::MODE_FIXWIDTH, 7), "-10.000");
+    // 小数位已经是 0 还放不下，只能改用科学计数法。
+    EXPECT_EQ(displayed(9999999.6, xTableView::MODE_FIXWIDTH, 7), "1.00e+7");
+}
+
+TEST_F(NumberDisplay, FixWidthModeShowsExtremeAndNonFiniteValues) {
+    // VB 把 >= 1e100 写成 "Inf"、< 1e-99 写成全 0；这里照样显示数值，只有真的无穷才写 Inf。
+    EXPECT_EQ(displayed(1.0e120, xTableView::MODE_FIXWIDTH, 7), "1e+120");
+    EXPECT_EQ(displayed(-1.0e-120, xTableView::MODE_FIXWIDTH, 7), "-1e-120");
+    EXPECT_EQ(displayed(std::numeric_limits<double>::infinity(), xTableView::MODE_FIXWIDTH, 7),
+              "Inf");
+    EXPECT_EQ(displayed(-std::numeric_limits<double>::infinity(), xTableView::MODE_FIXWIDTH, 7),
+              "-Inf");
+    EXPECT_EQ(displayed(std::numeric_limits<double>::quiet_NaN(), xTableView::MODE_FIXWIDTH, 7),
+              "NaN");
+}
+
+TEST_F(NumberDisplay, FixWidthModeTreatsPrecisionAsTotalLengthAndDefaultsToSeven) {
+    EXPECT_EQ(displayed(0.823818323275, xTableView::MODE_FIXWIDTH, 0), "0.82382");
+    EXPECT_EQ(displayed(0.823818323275, xTableView::MODE_FIXWIDTH, 10), "0.82381832");
+    EXPECT_EQ(displayed(134.752759897, xTableView::MODE_FIXWIDTH, 5), "134.8");
+}
+
+TEST_F(NumberDisplay, FixWidthModeNeverInsertsGroupSeparators) {
+    // 系统区域设置常带千分位，定长靠字符数对齐，不能被 "1,234.57" 撑乱。
+    delegate_->setRealNumberShowMode(xTableView::MODE_FIXWIDTH, 7);
+    const QLocale us(QLocale::English, QLocale::UnitedStates);
+    EXPECT_EQ(delegate_->displayText(1234.5678, us).toStdString(), "1234.57");
+    EXPECT_EQ(delegate_->displayText(1234567.89, us).toStdString(), "1234568");
+}
+
+TEST_F(NumberDisplay, FixWidthEditorDoesNotSubmitRoundedText) {
+    QStandardItemModel model(1, 1);
+    const QModelIndex index = model.index(0, 0);
+    const double original = 0.000123456789;
+    model.setData(index, original);
+    delegate_->setRealNumberShowMode(xTableView::MODE_FIXWIDTH, 7);
+    QWidget parent;
+    std::unique_ptr<QWidget> editor(delegate_->createEditor(&parent, {}, index));
+    auto* lineEdit = qobject_cast<QLineEdit*>(editor.get());
+    ASSERT_NE(lineEdit, nullptr);
+    delegate_->setEditorData(editor.get(), index);
+    EXPECT_EQ(lineEdit->text(), QStringLiteral("1.23e-4"));
+    EXPECT_TRUE(lineEdit->hasAcceptableInput());
+
+    QSignalSpy changed(&model, &QAbstractItemModel::dataChanged);
+    delegate_->setModelData(editor.get(), &model, index);
+    EXPECT_EQ(changed.count(), 0);
+    EXPECT_DOUBLE_EQ(index.data(Qt::EditRole).toDouble(), original);
 }
 
 TEST_F(NumberDisplay, FloatValuesAreFormattedLikeDoubles) {
@@ -271,6 +351,21 @@ TEST_F(NumberDisplay, UiStateRoundTripsModeAndPrecision) {
 
     EXPECT_EQ(target.getNumberDisplayMode(), xTableView::MODE_SCIENTIFIC);
     EXPECT_EQ(target.getNumberDisplayPrecision(), 5);
+}
+
+TEST_F(NumberDisplay, UiStateRoundTripsFixWidthMode) {
+    xTableView source;
+    QStandardItemModel source_model(2, 2);
+    source.setSourceModel(&source_model);
+    source.setNumberDisplayMode(xTableView::MODE_FIXWIDTH, 7);
+
+    xTableView target;
+    QStandardItemModel target_model(2, 2);
+    target.setSourceModel(&target_model);
+    target.restoreUiState(source.saveUiState());
+
+    EXPECT_EQ(target.getNumberDisplayMode(), xTableView::MODE_FIXWIDTH);
+    EXPECT_EQ(target.getNumberDisplayPrecision(), 7);
 }
 
 TEST_F(NumberDisplay, RestoreUiStateIgnoresAnOutOfRangeMode) {

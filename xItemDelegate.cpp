@@ -33,6 +33,8 @@
 #include <QMetaType>
 #include <QByteArray>
 #include <QString>
+#include <algorithm>
+#include <cmath>
 #include <cstdio>  // For snprintf
 
 /**
@@ -85,6 +87,78 @@ static QString formatScientific(double value, int precision) {
     }
 
     return result;
+}
+
+/**
+ * @brief VB Format(值, "0.00e+0") 那样的科学计数法：指数带正负号、不补零。
+ * @param decimals 尾数小数点后的位数。
+ * @param decimal_point 小数点，跟着 locale 走（MODE_FIXFLOAT 也是）。
+ * @return 例如 "1.23e-4"、"1.2e+15"。
+ */
+static QString formatVbExponential(double value, int decimals, const QString &decimal_point) {
+    // 缓冲区同 formatScientific()：符号 + 首位 + 小数点 + decimals 位 + "e+308" + 结尾 0。
+    QByteArray buffer(decimals + 16, '\0');
+    snprintf(buffer.data(), static_cast<size_t>(buffer.size()), "%.*e", decimals, value);
+
+    QString result = QString::fromLatin1(buffer.constData());
+    const int e_pos = result.lastIndexOf('e');
+    if (e_pos == -1) return result;
+
+    // printf 的指数至少两位（"e-04"），VB 的 "e+0" 只要一位：去掉指数前导的 0。
+    while (result.length() > e_pos + 3 && result.at(e_pos + 2) == QLatin1Char('0')) {
+        result.remove(e_pos + 2, 1);
+    }
+    result.replace(QLatin1Char('.'), decimal_point);
+    return result;
+}
+
+/**
+ * @brief 定长显示，照 VB 的 定长显示(value, length)：总共 length 个字符（含负号）。
+ *
+ * 小数位数 = 总长 - 负号 - 整数部分位数 - 小数点，例如长度 7 时 0.82382、134.753、-0.5367、
+ * 1234568。下面两种情况定点放不下或者有效数字太少，改用科学计数法，尾数位数同样按总长扣：
+ *  - 整数部分超长：正数 >= 10^length，负数 <= -10^(length-1)；
+ *  - 数太小：正数 < 0.001，负数 > -0.01（门槛照抄 VB，与长度无关）。
+ *
+ * 跟 VB 不一样的地方只在极端处：
+ *  - 四舍五入进位多出一位（99.99996 → 100.0000）时少留一位小数，保住总长；
+ *    小数位已经是 0 还放不下（9999999.6）就改用科学计数法。
+ *  - 指数三位数时照样显示数值，而不是像 VB 那样大的写 "Inf"、小的写成全 0。
+ *
+ * @param length 总字符数；<= 0 时按 7（VB 搜索结果用的长度）。
+ */
+static QString formatFixedWidth(double value, int length, const QLocale &locale) {
+    const int width = length > 0 ? length : 7;
+    if (std::isnan(value)) return QStringLiteral("NaN");
+    if (std::isinf(value)) return value > 0 ? QStringLiteral("Inf") : QStringLiteral("-Inf");
+
+    // 定长靠字符数对齐，千分位会把它撑乱，这里只借 locale 的小数点。
+    QLocale plain = locale;
+    plain.setNumberOptions(plain.numberOptions() | QLocale::OmitGroupSeparator);
+
+    const bool negative = value < 0;
+    const int sign_chars = negative ? 1 : 0;
+    const double magnitude = std::abs(value);
+
+    const bool too_large = magnitude >= std::pow(10.0, width - sign_chars);
+    const bool too_small = magnitude > 0 && magnitude < (negative ? 0.01 : 0.001);
+    if (!too_large && !too_small) {
+        // 整数部分的位数照 VB 的 Len(CStr(Fix(Abs(value))))。
+        const int int_digits = static_cast<int>(QString::number(std::trunc(magnitude), 'f', 0).size());
+        for (int decimals = std::max(width - sign_chars - int_digits - 1, 0); decimals >= 0;
+             --decimals) {
+            const QString text = plain.toString(value, 'f', decimals);
+            if (text.size() <= width) return text;
+        }
+    }
+
+    // 尾数 "d." 两个字符、"e+" 两个字符、指数至少一位：先按一位指数算小数位，
+    // 指数位数多了放不下就逐位减小数，减到 0 为止（同 VB "0.0e+00" 比 "0.00e+0" 少一位）。
+    const QString decimal_point = plain.decimalPoint();
+    for (int decimals = std::max(width - sign_chars - 5, 0);; --decimals) {
+        const QString text = formatVbExponential(value, decimals, decimal_point);
+        if (text.size() <= width || decimals == 0) return text;
+    }
 }
 
 xItemDelegate::xItemDelegate(QObject *parent)
@@ -544,6 +618,10 @@ QString xItemDelegate::displayText(const QVariant &value, const QLocale &locale)
                 case xTableView::MODE_FIXFLOAT:
                     // 使用固定小数位数格式，精度由 realnum_precision_ 控制
                     return locale.toString(val, 'f', realnum_precision_);
+
+                case xTableView::MODE_FIXWIDTH:
+                    // 定长：realnum_precision_ 是总字符数
+                    return formatFixedWidth(val, realnum_precision_, locale);
 
                 case xTableView::MODE_SCIENTIFIC:
                     // 使用您自定义的科学计数法格式
