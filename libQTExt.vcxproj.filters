@@ -64,6 +64,9 @@
     <QtMoc Include="xQwtChart.h">
       <Filter>Header Files</Filter>
     </QtMoc>
+    <QtMoc Include="xQwtChartWidget.h">
+      <Filter>Header Files</Filter>
+    </QtMoc>
     <QtMoc Include="xLogView.h">
       <Filter>Header Files</Filter>
     </QtMoc>
@@ -88,6 +91,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="xQwtChart.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="xQwtChartWidget.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="xLogView.cpp">

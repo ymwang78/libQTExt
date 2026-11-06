@@ -199,3 +199,42 @@ if(MSVC)
     target_compile_options(test_value_range PRIVATE /utf-8)
 endif()
 add_test(NAME value_range COMMAND test_value_range)
+
+# xQwtChartWidget（趋势图部件）：轴线、标题重入保护、setCurveData 的 NaN 策略、setAxisScale
+# 的量程兜底。用例要真的画 QWT，而 libQTExt 自己不带 QWT 的预编译产物，所以把
+# libsrc/libQWT 的源码编成一个只给测试用的静态库（不含 OpenGL 画布那两个文件，与 KeelDeck
+# 的 CMake 同一口径；不定义 QWT_DLL，静态链接）。
+find_package(Qt6 REQUIRED COMPONENTS PrintSupport Svg Concurrent)
+file(GLOB LIBQTEXT_TEST_QWT_SOURCES "${CXXPROJ_ROOT}/libsrc/libQWT/*.cpp")
+file(GLOB LIBQTEXT_TEST_QWT_HEADERS "${CXXPROJ_ROOT}/libsrc/libQWT/*.h")
+list(FILTER LIBQTEXT_TEST_QWT_SOURCES EXCLUDE REGEX "qwt_plot_(glcanvas|opengl_canvas)\\.cpp$")
+list(FILTER LIBQTEXT_TEST_QWT_HEADERS EXCLUDE REGEX "qwt_plot_(glcanvas|opengl_canvas)\\.h$")
+add_library(libqtext_test_qwt STATIC EXCLUDE_FROM_ALL
+    ${LIBQTEXT_TEST_QWT_SOURCES} ${LIBQTEXT_TEST_QWT_HEADERS})
+target_include_directories(libqtext_test_qwt PUBLIC "${CXXPROJ_ROOT}/libsrc/libQWT")
+target_link_libraries(libqtext_test_qwt PUBLIC
+    Qt6::Core Qt6::Gui Qt6::Widgets Qt6::PrintSupport Qt6::Svg Qt6::Concurrent)
+if(MSVC)
+    target_compile_options(libqtext_test_qwt PRIVATE /utf-8 /wd4996)
+endif()
+
+add_executable(test_qwt_chart_widget
+    test_qwt_chart_widget.cpp
+    "${LIBQTEXT_DIR}/xQwtChartWidget.cpp"
+    "${LIBQTEXT_DIR}/xQwtChartWidget.h"
+    "${LIBQTEXT_DIR}/xQwtChart.cpp"
+    "${LIBQTEXT_DIR}/xQwtChart.h"
+)
+target_compile_definitions(test_qwt_chart_widget PRIVATE USE_GTEST_MAIN)
+target_include_directories(test_qwt_chart_widget PRIVATE "${LIBQTEXT_DIR}")
+target_link_libraries(test_qwt_chart_widget PRIVATE
+    GTest::gtest
+    GTest::gtest_main
+    Qt6::Widgets
+    Qt6::Test
+    libqtext_test_qwt
+)
+if(MSVC)
+    target_compile_options(test_qwt_chart_widget PRIVATE /utf-8 /wd4996)
+endif()
+add_test(NAME qwt_chart_widget COMMAND test_qwt_chart_widget)

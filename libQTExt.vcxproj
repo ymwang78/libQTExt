@@ -119,6 +119,7 @@
     <ClCompile Include="xItemDelegate.cpp" />
     <ClCompile Include="xLogView.cpp" />
     <ClCompile Include="xQwtChart.cpp" />
+    <ClCompile Include="xQwtChartWidget.cpp" />
     <ClCompile Include="xTreeItem.cpp" />
     <ClCompile Include="xTreeView.cpp" />
     <ClInclude Include="libqtext_global.h" />
@@ -126,6 +127,7 @@
     <QtMoc Include="xItemDelegate.h" />
     <QtMoc Include="xDockWidget.h" />
     <QtMoc Include="xQwtChart.h" />
+    <QtMoc Include="xQwtChartWidget.h" />
     <QtMoc Include="xLogView.h" />
     <ClInclude Include="xTheme.h" />
     <ClInclude Include="xTimeAxisFormat.h" />
