@@ -250,6 +250,18 @@ TEST_F(QwtChartWidget, AllNanSamplesLeaveTheCurveEmpty) {
     EXPECT_EQ(curve->dataSize(), 0u);
 }
 
+TEST_F(QwtChartWidget, SetCurveColorKeepsTheWidthSetBefore) {
+    xQwtChartWidget chart;
+    const int id = chart.addCurve("pv", Qt::blue);
+    chart.setCurveWidth(id, 5);
+    chart.setCurveColor(id, Qt::red);
+
+    QwtPlotCurve* curve = chart.getCurve(id);
+    ASSERT_NE(curve, nullptr);
+    EXPECT_EQ(curve->pen().color(), QColor(Qt::red));
+    EXPECT_EQ(curve->pen().width(), 5) << "改颜色不该把 setCurveWidth 设的线宽冲回默认值";
+}
+
 TEST_F(QwtChartWidget, CurveIdsRestartFromZeroAfterRemoveAllCurves) {
     xQwtChartWidget chart;
     EXPECT_EQ(chart.addCurve("a", Qt::red), 0);
