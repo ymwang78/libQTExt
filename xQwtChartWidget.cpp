@@ -519,7 +519,10 @@ void xQwtChartWidget::setCurveColor(int curveId, const QColor& color) {
     auto it = m_curves.find(curveId);
     if (it != m_curves.end()) {
         it.value()->color = color;
-        it.value()->curve->setPen(QPen(color, 2));
+        // 只改颜色：线宽是 setCurveWidth() 设的，重建 QPen 会把它冲回默认的 2
+        QPen pen = it.value()->curve->pen();
+        pen.setColor(color);
+        it.value()->curve->setPen(pen);
         m_plot->replot();
     }
 }

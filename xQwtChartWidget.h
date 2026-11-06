@@ -20,6 +20,8 @@
 
 #include <QWidget>
 #include <QPointer>
+#include <QMap>
+#include <QString>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QSplitter>
