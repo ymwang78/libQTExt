@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 // ***************************************************************
 //  xLogView   version:  1.0   -  date:  2025/08/13
 //  -------------------------------------------------------------
@@ -104,6 +104,12 @@ class xLogView : public QWidget {
     int currentLevel() const;
     // 以编程方式设置等级过滤门限，不会触发 logLevelChanged（用于从工程配置同步初值）
     void setLevel(int level);
+    QString selectedLogsText() const;
+    QString allVisibleLogsText() const;
+    void copySelectedToClipboard();
+    void copyAllToClipboard();
+    void selectAllLogs();
+    QListView* listView() const { return m_listView; }
 
   signals:
     // 用户在界面上修改等级过滤门限时发出（编程调用 setLevel 不触发）
@@ -115,6 +121,7 @@ class xLogView : public QWidget {
     void applyFilter();
     void onClearLog();
     void setAutoScroll(bool enabled);
+    void onContextMenuRequested(const QPoint& pos);
     void onScrollBarActionTriggered(int action);  // 用户操作滚动条（不响应程序调用）
 
   protected:

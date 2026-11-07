@@ -23,6 +23,11 @@
 #include <QEvent>
 #include <QSignalBlocker>
 #include <QStringList>
+#include <QClipboard>
+#include <QMenu>
+#include <QShortcut>
+#include <QItemSelectionModel>
+#include <algorithm>
 #include <zce/zce_log.h>
 #include "xTheme.h"
 
@@ -281,6 +286,16 @@ void xLogView::setupUI() {
     // uniformItemSizes=true 已使 layout 为 O(1)，不需要 BatchedLayout
     // （BatchedLayout 会分批延迟排列，导致 scrollToBottom 被内部重排覆盖）
     m_listView->setUniformItemSizes(true);
+    m_listView->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    m_listView->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_listView, &QListView::customContextMenuRequested, this,
+            &xLogView::onContextMenuRequested);
+    auto* copyShortcut = new QShortcut(QKeySequence::Copy, m_listView);
+    copyShortcut->setContext(Qt::WidgetWithChildrenShortcut);
+    connect(copyShortcut, &QShortcut::activated, this, &xLogView::copySelectedToClipboard);
+    auto* selectAllShortcut = new QShortcut(QKeySequence::SelectAll, m_listView);
+    selectAllShortcut->setContext(Qt::WidgetWithChildrenShortcut);
+    connect(selectAllShortcut, &QShortcut::activated, this, &xLogView::selectAllLogs);
 
     // 设置字体
     QFont monoFont("Consolas");
@@ -484,6 +499,92 @@ void xLogView::setLevel(int level) {
 
 void xLogView::onClearLog() {
     if (m_model) m_model->clear();
+}
+
+QString xLogView::selectedLogsText() const {
+    if (!m_listView || !m_proxyModel) return QString();
+    QItemSelectionModel* sel = m_listView->selectionModel();
+    if (!sel) return QString();
+
+    QModelIndexList selected = sel->selectedRows(0);
+    if (selected.isEmpty()) {
+        selected = sel->selectedIndexes();
+    }
+    if (selected.isEmpty() && m_listView->currentIndex().isValid()) {
+        selected.append(m_listView->currentIndex());
+    }
+    if (selected.isEmpty()) return QString();
+
+    std::sort(selected.begin(), selected.end(),
+              [](const QModelIndex& a, const QModelIndex& b) { return a.row() < b.row(); });
+
+    QStringList lines;
+    int lastRow = -1;
+    for (const QModelIndex& idx : selected) {
+        if (!idx.isValid() || idx.row() == lastRow) continue;
+        lastRow = idx.row();
+        lines.append(m_proxyModel->data(idx, Qt::DisplayRole).toString());
+    }
+    return lines.join(QStringLiteral("\n"));
+}
+
+QString xLogView::allVisibleLogsText() const {
+    if (!m_proxyModel) return QString();
+    const int count = m_proxyModel->rowCount();
+    QStringList lines;
+    lines.reserve(count);
+    for (int row = 0; row < count; ++row) {
+        lines.append(m_proxyModel->data(m_proxyModel->index(row, 0), Qt::DisplayRole).toString());
+    }
+    return lines.join(QStringLiteral("\n"));
+}
+
+void xLogView::copySelectedToClipboard() {
+    const QString text = selectedLogsText();
+    if (text.isEmpty()) return;
+    if (QClipboard* clipboard = QApplication::clipboard()) {
+        clipboard->setText(text);
+    }
+}
+
+void xLogView::copyAllToClipboard() {
+    const QString text = allVisibleLogsText();
+    if (text.isEmpty()) return;
+    if (QClipboard* clipboard = QApplication::clipboard()) {
+        clipboard->setText(text);
+    }
+}
+
+void xLogView::selectAllLogs() {
+    if (m_listView) {
+        m_listView->selectAll();
+    }
+}
+
+void xLogView::onContextMenuRequested(const QPoint& pos) {
+    if (!m_listView) return;
+    QMenu menu(this);
+
+    const bool hasSelection = !selectedLogsText().isEmpty();
+    const bool hasVisibleRows = (m_proxyModel && m_proxyModel->rowCount() > 0);
+    const bool hasAnyRows = (m_model && m_model->rowCount() > 0);
+
+    QAction* copyAction = menu.addAction(tr("Copy"), this, &xLogView::copySelectedToClipboard);
+    copyAction->setShortcut(QKeySequence::Copy);
+    copyAction->setEnabled(hasSelection);
+
+    QAction* copyAllAction = menu.addAction(tr("Copy All"), this, &xLogView::copyAllToClipboard);
+    copyAllAction->setEnabled(hasVisibleRows);
+
+    QAction* selectAllAction = menu.addAction(tr("Select All"), this, &xLogView::selectAllLogs);
+    selectAllAction->setShortcut(QKeySequence::SelectAll);
+    selectAllAction->setEnabled(hasVisibleRows);
+
+    menu.addSeparator();
+    QAction* clearAction = menu.addAction(tr("Clear"), this, &xLogView::onClearLog);
+    clearAction->setEnabled(hasAnyRows);
+
+    menu.exec(m_listView->viewport()->mapToGlobal(pos));
 }
 
 void xLogView::clear() {

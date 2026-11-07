@@ -238,3 +238,26 @@ if(MSVC)
     target_compile_options(test_qwt_chart_widget PRIVATE /utf-8 /wd4996)
 endif()
 add_test(NAME qwt_chart_widget COMMAND test_qwt_chart_widget)
+
+add_executable(test_log_view
+    test_log_view.cpp
+    "${LIBQTEXT_DIR}/xLogView.cpp"
+    "${LIBQTEXT_DIR}/xLogView.h"
+    "${LIBQTEXT_DIR}/xTheme.cpp"
+    "${LIBQTEXT_DIR}/xTheme.h"
+    "${LIBQTEXT_DIR}/qtext.qrc"
+)
+set_target_properties(test_log_view PROPERTIES AUTORCC ON)
+target_compile_definitions(test_log_view PRIVATE USE_GTEST_MAIN)
+target_include_directories(test_log_view PRIVATE "${LIBQTEXT_DIR}" "${CXXPROJ_ROOT}/include")
+target_link_libraries(test_log_view PRIVATE
+    GTest::gtest
+    GTest::gtest_main
+    Qt6::Widgets
+    Qt6::Svg
+    Qt6::Test
+)
+if(MSVC)
+    target_compile_options(test_log_view PRIVATE /utf-8 /wd4996)
+endif()
+add_test(NAME log_view COMMAND test_log_view)
