@@ -82,6 +82,7 @@
       <PrecompiledHeaderFile />
       <AdditionalOptions>/utf-8 /wd4996 /FS %(AdditionalOptions)</AdditionalOptions>
       <LanguageStandard_C>stdc17</LanguageStandard_C>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
     </ClCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x64'" Label="Configuration">
@@ -139,6 +140,8 @@
     <ClCompile Include="xTableEditor.cpp" />
     <ClCompile Include="xTableHeader.cpp" />
     <ClCompile Include="xTableView.cpp" />
+    <ClCompile Include="PythonCodeEditor.cpp" />
+    <ClInclude Include="PythonCodeEditor.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="resource\clear-all.svg" />

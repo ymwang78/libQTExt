@@ -102,6 +102,12 @@
     <ClCompile Include="xTheme.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="PythonCodeEditor.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClInclude Include="PythonCodeEditor.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="resource\clear.svg">
