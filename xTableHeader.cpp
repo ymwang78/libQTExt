@@ -71,27 +71,36 @@ int measureHeaderTextWidth(const QFontMetrics& fm, const QString& text) {
     return maxWidth;
 }
 
-QString elideSingleHeaderLine(const QString& line, const QFontMetrics& fm, int availWidth) {
-    if (line.isEmpty() || availWidth <= 0 || fm.horizontalAdvance(line) <= availWidth) {
+QString elideSingleHeaderLine(const QString& line, const QFontMetrics& fm, int availWidth,
+                              Qt::TextElideMode elideMode) {
+    if (elideMode == Qt::ElideNone || line.isEmpty() || availWidth <= 0 ||
+        fm.horizontalAdvance(line) <= availWidth) {
         return line;
     }
-    const QString elided = fm.elidedText(line, Qt::ElideRight, availWidth);
+    const QString elided = fm.elidedText(line, elideMode, availWidth);
     const bool onlyEllipsis =
         (elided == QStringView(u"\u2026") || elided == QStringView(u"...") ||
          elided == QStringView(u"\u200d\u2026") || elided == QStringView(u"\u200d..."));
-    if (!elided.isEmpty() && !onlyEllipsis && elided.at(0) == line.at(0)) {
-        return elided;
+    if (elided.isEmpty() || onlyEllipsis) {
+        return line;
     }
-    return line;
+    if (elideMode == Qt::ElideRight && elided.at(0) != line.at(0)) {
+        return line;
+    }
+    return elided;
 }
 
-void elideHeaderOptionRight(QStyleOptionHeaderV2* option, const QFontMetrics& fm, int availWidth) {
+void elideHeaderOption(QStyleOptionHeaderV2* option, const QFontMetrics& fm, int availWidth,
+                       Qt::TextElideMode elideMode) {
     if (!option || option->text.isEmpty()) {
         return;
     }
     // 水平表头统一由本函数按行度量与省略，避免 QCommonStyle::CE_HeaderLabel
-    // 把多行表头按单行总长误截断。
+    // 把多行表头按单行总长误截断；当调用方显式设为 ElideNone 时跳过自定义省略，保持原生语义。
     option->textElideMode = Qt::ElideNone;
+    if (elideMode == Qt::ElideNone) {
+        return;
+    }
     const int textWidth = measureHeaderTextWidth(fm, option->text);
     if (textWidth <= availWidth) {
         return;
@@ -99,14 +108,18 @@ void elideHeaderOptionRight(QStyleOptionHeaderV2* option, const QFontMetrics& fm
     const Qt::Alignment verticalAlign = (option->textAlignment & Qt::AlignVertical_Mask)
                                             ? (option->textAlignment & Qt::AlignVertical_Mask)
                                             : Qt::AlignVCenter;
-    option->textAlignment = Qt::AlignLeft | verticalAlign;
+    if (elideMode == Qt::ElideRight) {
+        option->textAlignment = Qt::AlignLeft | verticalAlign;
+    } else if (elideMode == Qt::ElideLeft) {
+        option->textAlignment = Qt::AlignRight | verticalAlign;
+    }
     if (availWidth > 0) {
         if (!option->text.contains(QLatin1Char('\n'))) {
-            option->text = elideSingleHeaderLine(option->text, fm, availWidth);
+            option->text = elideSingleHeaderLine(option->text, fm, availWidth, elideMode);
         } else {
             QStringList lines = option->text.split(QLatin1Char('\n'));
             for (QString& line : lines) {
-                line = elideSingleHeaderLine(line, fm, availWidth);
+                line = elideSingleHeaderLine(line, fm, availWidth, elideMode);
             }
             option->text = lines.join(QLatin1Char('\n'));
         }
@@ -168,8 +181,9 @@ void xCheckableHeaderView::paintSection(QPainter* painter, const QRect& rect,
     initStyleOptionForIndex(&headerOpt, logicalIndex);
     // 与 QHeaderView::paintSection 保持一致：在 initStyleOptionForIndex 之后设置节矩形。
     headerOpt.rect = rect;
-    // 水平表头统一由本函数按行度量与省略，置为 ElideNone 防止 CE_HeaderLabel（含布尔列宽裕的 else
-    // 分支） 把多行表头按整串单行总长误截断。
+    // 先取出调用方配置的省略模式，再将传给样式的字段置为 ElideNone，统一由本函数按行省略，
+    // 防止 CE_HeaderLabel（含布尔列宽裕的 else 分支）把多行表头按整串单行总长误截断。
+    const Qt::TextElideMode elideMode = headerOpt.textElideMode;
     headerOpt.textElideMode = Qt::ElideNone;
 
     const QBrush nBrushButton = headerOpt.palette.brush(QPalette::Button);
@@ -217,7 +231,7 @@ void xCheckableHeaderView::paintSection(QPainter* painter, const QRect& rect,
                 labelOpt.textAlignment = Qt::AlignLeft | verticalAlign;
                 labelOpt.textElideMode = Qt::ElideNone;
             }
-            elideHeaderOptionRight(&labelOpt, fm, customLabelRect.width() - iconReserve);
+            elideHeaderOption(&labelOpt, fm, customLabelRect.width() - iconReserve, elideMode);
             painter->save();
             painter->setClipRect(customLabelRect, Qt::IntersectClip);
             style()->drawControl(QStyle::CE_HeaderLabel, &labelOpt, painter, this);
@@ -271,7 +285,7 @@ void xCheckableHeaderView::paintSection(QPainter* painter, const QRect& rect,
             drawDecomposedHeader(labelRect, false);
         } else {
             if (labelRect.isValid()) {
-                elideHeaderOptionRight(&headerOpt, fm, labelAvailWidth);
+                elideHeaderOption(&headerOpt, fm, labelAvailWidth, elideMode);
             }
             style()->drawControl(QStyle::CE_Header, &headerOpt, painter, this);
         }
@@ -288,7 +302,7 @@ void xCheckableHeaderView::paintSection(QPainter* painter, const QRect& rect,
     const bool textNeedsShiftOrElide =
         !headerOpt.text.isEmpty() &&
         (!labelRect.isValid() || (headerOpt.icon.isNull() && centeredLeft < minTextLeft) ||
-         textWidth > labelAvailWidth);
+         (elideMode != Qt::ElideNone && textWidth > labelAvailWidth));
 
     painter->save();
     if (oBrushButton != nBrushButton || oBrushWindow != nBrushWindow) {

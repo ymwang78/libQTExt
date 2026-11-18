@@ -568,6 +568,65 @@ TEST_F(TableHeader, MousePressInTableBodyDoesNotPaintHeaderSunkenAndDarkThemeWor
     QCoreApplication::processEvents();
 }
 
+TEST_F(TableHeader, ExplicitTextElideModeIsRespectedOnHorizontalHeader) {
+    xTableView table(nullptr, false);
+    QStandardItemModel model(1, 3);
+    model.setHorizontalHeaderLabels({
+        QStringLiteral("MW_000000000000000000_ALPHA"),
+        QStringLiteral("WM_000000000000000000_ALPHA"),
+        QStringLiteral("WM_000000000000000000_OMEGA"),
+    });
+    for (int col = 0; col < 3; ++col) {
+        model.setItem(0, col, new QStandardItem(QString::number(col)));
+    }
+    table.setSourceModel(&model);
+
+    QHeaderView* header = table.horizontalHeader();
+    ASSERT_NE(header, nullptr);
+    header->setStretchLastSection(false);
+    header->resizeSection(0, 56);
+    header->resizeSection(1, 56);
+    header->resizeSection(2, 56);
+
+    table.resize(260, 140);
+    table.show();
+    ASSERT_TRUE(QTest::qWaitForWindowExposed(&table));
+    QCoreApplication::processEvents();
+
+    const int y0 = 3;
+    const int y1 = qMax(y0, header->height() - 4);
+    const int sec0Left = header->sectionViewportPosition(0);
+    const int sec1Left = header->sectionViewportPosition(1);
+    const int sec2Left = header->sectionViewportPosition(2);
+
+    // 默认 ElideRight：列 0 与列 1 首字符不同（MW vs WM），左侧前缀区域显著不同。
+    ASSERT_EQ(header->textElideMode(), Qt::ElideRight);
+    const QImage elideRightImg = renderWidget(header);
+    EXPECT_GT(
+        countSectionDiffInBand(elideRightImg, sec0Left, elideRightImg, sec1Left, 4, 18, y0, y1),
+        10);
+
+    // 显式设为 ElideNone：跳过自定义省略，回到原生居中无省略绘制（中段同为 0000...，列 0 与列 1
+    // 一致）。
+    header->setTextElideMode(Qt::ElideNone);
+    QCoreApplication::processEvents();
+    const QImage elideNoneImg = renderWidget(header);
+    EXPECT_GT(
+        countSectionDiffInBand(elideRightImg, sec0Left, elideNoneImg, sec0Left, 4, 50, y0, y1), 15);
+    EXPECT_EQ(countSectionDiffInBand(elideNoneImg, sec0Left, elideNoneImg, sec1Left, 6, 48, y0, y1),
+              0);
+
+    // 显式设为 ElideLeft：截断左侧并保留右侧后缀（列 1 与列 2 后缀 ALPHA vs OMEGA 在右侧区域不同，
+    // 列 0 与列 1 后缀同为 ALPHA 在右侧区域一致）。
+    header->setTextElideMode(Qt::ElideLeft);
+    QCoreApplication::processEvents();
+    const QImage elideLeftImg = renderWidget(header);
+    EXPECT_EQ(
+        countSectionDiffInBand(elideLeftImg, sec0Left, elideLeftImg, sec1Left, 34, 51, y0, y1), 0);
+    EXPECT_GT(
+        countSectionDiffInBand(elideLeftImg, sec1Left, elideLeftImg, sec2Left, 34, 51, y0, y1), 10);
+}
+
 }  // namespace
 
 #ifndef USE_GTEST_MAIN
