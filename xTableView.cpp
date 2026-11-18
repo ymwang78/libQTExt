@@ -423,6 +423,7 @@ static void applyTableTheme(QTableView *table, bool darkMode) {
             "QHeaderView::section {"
             "    background-color: rgb(65, 50, 59);"
             "    color: white;"
+            "    padding: 0px 3px;"
             "    border: 1px solid rgb(70, 70, 80);"
             "}");
     } else {
@@ -444,6 +445,7 @@ static void applyTableTheme(QTableView *table, bool darkMode) {
             "QHeaderView::section {"
             "    background-color: rgb(235, 235, 235);"
             "    color: black;"
+            "    padding: 0px 3px;"
             "    border: 1px solid rgb(210, 210, 210);"
             "}");
     }
@@ -1317,6 +1319,10 @@ void xTableView::sortBy(int col, Qt::SortOrder ord) {
         if (horizontalHeader()) {
             horizontalHeader()->setSortIndicator(col, ord);
         }
+        if (frozen_col_view_ && frozen_col_view_->horizontalHeader()) {
+            frozen_col_view_->horizontalHeader()->setSortIndicatorShown(true);
+            frozen_col_view_->horizontalHeader()->setSortIndicator(col, ord);
+        }
         return;
     }
 
@@ -1326,6 +1332,10 @@ void xTableView::sortBy(int col, Qt::SortOrder ord) {
     if (horizontalHeader()) {
         horizontalHeader()->setSortIndicatorShown(false);
         horizontalHeader()->setSortIndicator(-1, Qt::AscendingOrder);
+    }
+    if (frozen_col_view_ && frozen_col_view_->horizontalHeader()) {
+        frozen_col_view_->horizontalHeader()->setSortIndicatorShown(false);
+        frozen_col_view_->horizontalHeader()->setSortIndicator(-1, Qt::AscendingOrder);
     }
 }
 
@@ -1565,6 +1575,11 @@ void xTableView::syncFrozen() {
         if (frozen_col_view_->model() != current_model) {
             frozen_col_view_->setModel(current_model);
             frozen_col_view_->setSelectionModel(selectionModel());
+            if (selectionModel()) {
+                connect(selectionModel(), &QItemSelectionModel::selectionChanged, frozen_col_view_,
+                        static_cast<void (QWidget::*)()>(&QTableView::update),
+                        Qt::UniqueConnection);
+            }
         }
         if (current_model) {
             for (int c = 0; c < current_model->columnCount(); ++c) {
@@ -1590,12 +1605,34 @@ void xTableView::syncFrozen() {
 
 void xTableView::createFrozenColView() {
     frozen_col_view_ = new QTableView(this);
+    auto *frozenHeader = new xCheckableHeaderView(Qt::Horizontal, frozen_col_view_);
+    frozen_col_view_->setHorizontalHeader(frozenHeader);
+    frozenHeader->setDefaultAlignment(horizontalHeader()->defaultAlignment());
+    frozenHeader->setSectionsClickable(horizontalHeader()->sectionsClickable());
+    frozenHeader->setSortIndicatorShown(horizontalHeader()->isSortIndicatorShown());
+    frozenHeader->setSortIndicator(horizontalHeader()->sortIndicatorSection(),
+                                   horizontalHeader()->sortIndicatorOrder());
+    for (int col : bool_columns_) {
+        frozenHeader->setBoolColumn(col, true);
+        frozenHeader->setCheckState(col, calculateBoolColumnState(col));
+    }
+    connect(frozenHeader, &xCheckableHeaderView::checkboxToggled, this,
+            &xTableView::onHeaderCheckboxToggled);
+    if (proxy_) {
+        connect(frozenHeader, &QHeaderView::sectionClicked, this,
+                &xTableView::toggleSortColumn);
+    }
+    connect(horizontalHeader(), &QHeaderView::sortIndicatorChanged, frozenHeader,
+            [this, frozenHeader](int logicalIndex, Qt::SortOrder order) {
+                frozenHeader->setSortIndicatorShown(horizontalHeader()->isSortIndicatorShown());
+                frozenHeader->setSortIndicator(logicalIndex, order);
+            });
     frozen_col_view_->setFrameShape(QFrame::NoFrame);
     frozen_col_view_->setModel(model());
     frozen_col_view_->setItemDelegate(itemDelegate());
     frozen_col_view_->setFocusPolicy(Qt::NoFocus);
     frozen_col_view_->verticalHeader()->hide();
-    frozen_col_view_->horizontalHeader()->setSectionResizeMode(QHeaderView::Fixed);
+    frozenHeader->setSectionResizeMode(QHeaderView::Fixed);
     frozen_col_view_->verticalHeader()->setDefaultSectionSize(
         verticalHeader()->defaultSectionSize());
     frozen_col_view_->verticalHeader()->setSectionResizeMode(QHeaderView::Fixed);
@@ -1617,8 +1654,10 @@ void xTableView::createFrozenColView() {
                     updateFrozenGeometry();
                 }
             });
-    connect(selectionModel(), &QItemSelectionModel::selectionChanged, frozen_col_view_,
-            static_cast<void (QWidget::*)()>(&QTableView::update));
+    if (selectionModel()) {
+        connect(selectionModel(), &QItemSelectionModel::selectionChanged, frozen_col_view_,
+                static_cast<void (QWidget::*)()>(&QTableView::update));
+    }
     frozen_col_view_->show();
 }
 
@@ -1696,6 +1735,12 @@ void xTableView::setBoolColumn(int column, bool enabled) {
     }
     // 通知自定义的表头这一变化
     checkable_header_->setBoolColumn(column, enabled);
+    if (frozen_col_view_) {
+        if (auto *frozenHeader =
+                qobject_cast<xCheckableHeaderView *>(frozen_col_view_->horizontalHeader())) {
+            frozenHeader->setBoolColumn(column, enabled);
+        }
+    }
     // 如果设置为布尔列，立即计算并更新其初始状态
     if (enabled) {
         updateBoolColumnHeaderState(column);
@@ -1769,6 +1814,12 @@ void xTableView::updateBoolColumnHeaderState(int column) {
     if (isBoolColumn(column)) {
         Qt::CheckState state = calculateBoolColumnState(column);
         checkable_header_->setCheckState(column, state);
+        if (frozen_col_view_) {
+            if (auto *frozenHeader =
+                    qobject_cast<xCheckableHeaderView *>(frozen_col_view_->horizontalHeader())) {
+                frozenHeader->setCheckState(column, state);
+            }
+        }
     }
 }
 
