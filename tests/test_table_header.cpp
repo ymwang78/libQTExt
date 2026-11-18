@@ -11,10 +11,13 @@
 #include <QFontDatabase>
 #include <QHeaderView>
 #include <QImage>
+#include <QPalette>
+#include <QScopeGuard>
 #include <QSignalSpy>
 #include <QStandardItemModel>
 #include <QStyle>
 #include <QStyleOptionButton>
+#include <QStyleOptionHeader>
 #include <QTableView>
 #include <QTest>
 
@@ -100,7 +103,7 @@ class TableHeader : public ::testing::Test {
 
 TEST_F(TableHeader, NarrowHorizontalHeaderPreservesLeftPrefixAndKeepsResizeToContents) {
     xTableView table(nullptr, false);
-    QStandardItemModel model(1, 5, &table);
+    QStandardItemModel model(1, 5);
     model.setHorizontalHeaderLabels({
         QStringLiteral("No."),
         QStringLiteral("ALPHA_0000000000000000"),
@@ -158,7 +161,7 @@ TEST_F(TableHeader, VerticalHeaderBooleanSectionDrawsAndTogglesCheckBox) {
     auto* vHeader = new xCheckableHeaderView(Qt::Vertical, &table);
     table.setVerticalHeader(vHeader);
 
-    QStandardItemModel model(2, 1, &table);
+    QStandardItemModel model(2, 1);
     model.setVerticalHeaderLabels({QString(), QStringLiteral("R1")});
     model.setItem(0, 0, new QStandardItem(QStringLiteral("a")));
     model.setItem(1, 0, new QStandardItem(QStringLiteral("b")));
@@ -198,7 +201,7 @@ TEST_F(TableHeader, VerticalHeaderBooleanSectionDrawsAndTogglesCheckBox) {
 
 TEST_F(TableHeader, NarrowBooleanHorizontalHeaderShiftsTextRightOfCheckBox) {
     xTableView table(nullptr, false);
-    QStandardItemModel model(1, 1, &table);
+    QStandardItemModel model(1, 1);
     model.setHorizontalHeaderLabels({QString()});
     model.setItem(0, 0, new QStandardItem(QStringLiteral("1")));
     table.setSourceModel(&model);
@@ -237,8 +240,9 @@ TEST_F(TableHeader, NarrowBooleanHorizontalHeaderShiftsTextRightOfCheckBox) {
 
 TEST_F(TableHeader, HeaderDecorationIconReservesWidthWhenElidingText) {
     xTableView table(nullptr, false);
-    QStandardItemModel model(1, 1, &table);
-    model.setHorizontalHeaderLabels({QStringLiteral("WWW_ICON_HEADER_TEXT")});
+    const QString fullText = QStringLiteral("WWWWWWWWWWWWWWWWWWWW");
+    QStandardItemModel model(1, 1);
+    model.setHorizontalHeaderLabels({fullText});
     QPixmap iconPixmap(16, 16);
     iconPixmap.fill(QColor(0, 200, 0));
     model.setHeaderData(0, Qt::Horizontal, QIcon(iconPixmap), Qt::DecorationRole);
@@ -248,35 +252,266 @@ TEST_F(TableHeader, HeaderDecorationIconReservesWidthWhenElidingText) {
     QHeaderView* header = table.horizontalHeader();
     ASSERT_NE(header, nullptr);
     header->setStretchLastSection(false);
-    header->resizeSection(0, 68);
+    header->resizeSection(0, 84);
 
-    table.resize(220, 120);
+    table.resize(240, 120);
+    table.show();
+    ASSERT_TRUE(QTest::qWaitForWindowExposed(&table));
+    QCoreApplication::processEvents();
+
+    const QImage actualImg = renderWidget(header);
+
+    // 按 QCommonStyle::CE_HeaderLabel 口径算出真实 labelRect 与扣除图标+间距后的期望省略文本。
+    QStyleOptionHeaderV2 opt;
+    opt.initFrom(header);
+    opt.state |= QStyle::State_Horizontal | QStyle::State_Enabled | QStyle::State_Raised;
+    opt.section = 0;
+    opt.orientation = Qt::Horizontal;
+    opt.icon = QIcon(iconPixmap);
+    opt.rect =
+        QRect(header->sectionViewportPosition(0), 0, header->sectionSize(0), header->height());
+    const QRect labelRect = header->style()->subElementRect(QStyle::SE_HeaderLabel, &opt, header);
+    ASSERT_TRUE(labelRect.isValid());
+    const int iconExtent = header->style()->pixelMetric(QStyle::PM_SmallIconSize, &opt, header);
+    const qreal dpr = actualImg.devicePixelRatio() > 0.0 ? actualImg.devicePixelRatio() : 1.0;
+    const QPixmap expectedPm = opt.icon.pixmap(QSize(iconExtent, iconExtent), dpr, QIcon::Normal);
+    const qreal pmDpr = expectedPm.devicePixelRatio() > 0.0 ? expectedPm.devicePixelRatio() : 1.0;
+    const int iconReserve = static_cast<int>(expectedPm.width() / pmDpr) +
+                            header->style()->pixelMetric(QStyle::PM_HeaderMargin, &opt, header);
+
+    const QFontMetrics fm = header->fontMetrics();
+    const QString expectedElided =
+        fm.elidedText(fullText, Qt::ElideRight, labelRect.width() - iconReserve);
+    const QString unreservedElided = fm.elidedText(fullText, Qt::ElideRight, labelRect.width());
+    ASSERT_FALSE(expectedElided.isEmpty());
+    ASSERT_NE(expectedElided, fullText);
+    ASSERT_NE(expectedElided, unreservedElided);
+
+    // 将表头文本直接设为期望省略串并显式左对齐：此时文本已不超宽，直接走原生 CE_Header 绘制。
+    // 若 paintSection 漏扣了 iconReserve，actualImg 会按 unreservedElided
+    // 绘制并在右缘硬裁（缺省略号）， 与 expectedImg 在右侧字符区域必然产生像素差异。
+    model.setHeaderData(0, Qt::Horizontal, int(Qt::AlignLeft | Qt::AlignVCenter),
+                        Qt::TextAlignmentRole);
+    model.setHeaderData(0, Qt::Horizontal, expectedElided, Qt::DisplayRole);
+    QCoreApplication::processEvents();
+    const QImage expectedImg = renderWidget(header);
+
+    EXPECT_EQ(countSectionDiffInBand(actualImg, 0, expectedImg, 0, 0, header->sectionSize(0) - 1, 0,
+                                     header->height() - 1, 0),
+              0);
+}
+
+TEST_F(TableHeader, FrozenColumnsPreserveLeftPrefixAndStayCenteredWhenWide) {
+    xTableView table(nullptr, true);
+    EXPECT_EQ(table.horizontalHeader()->textElideMode(), Qt::ElideRight);
+
+    QStandardItemModel model(2, 5);
+    model.setHorizontalHeaderLabels({
+        QStringLiteral("No."),
+        QStringLiteral("ALPHA_0000000000000000"),
+        QStringLiteral("ALPHA_9999999999999999"),
+        QStringLiteral("OMEGA_0000000000000000"),
+        QStringLiteral("Unfrozen Tail"),
+    });
+    for (int r = 0; r < 2; ++r) {
+        for (int c = 0; c < 5; ++c) {
+            model.setItem(r, c, new QStandardItem(QString::number(r * 10 + c)));
+        }
+    }
+    table.setSourceModel(&model);
+
+    QHeaderView* mainHeader = table.horizontalHeader();
+    ASSERT_NE(mainHeader, nullptr);
+    mainHeader->setStretchLastSection(false);
+    mainHeader->resizeSection(0, 120);
+    mainHeader->resizeSection(1, 52);
+    mainHeader->resizeSection(2, 52);
+    mainHeader->resizeSection(3, 52);
+    mainHeader->resizeSection(4, 120);
+
+    table.freezeLeftColumns(4);
+
+    table.resize(480, 160);
+    table.show();
+    ASSERT_TRUE(QTest::qWaitForWindowExposed(&table));
+    QCoreApplication::processEvents();
+
+    QTableView* frozenView = nullptr;
+    const QList<QTableView*> childTables =
+        table.findChildren<QTableView*>(QString(), Qt::FindDirectChildrenOnly);
+    for (QTableView* candidate : childTables) {
+        if (candidate && candidate->isVisible() && !candidate->horizontalHeader()->isHidden()) {
+            frozenView = candidate;
+            break;
+        }
+    }
+    ASSERT_NE(frozenView, nullptr);
+    QHeaderView* frozenHeader = frozenView->horizontalHeader();
+    ASSERT_NE(frozenHeader, nullptr);
+    EXPECT_NE(qobject_cast<xCheckableHeaderView*>(frozenHeader), nullptr);
+    EXPECT_EQ(frozenHeader->textElideMode(), Qt::ElideRight);
+
+    const QImage frozenImg = renderWidget(frozenHeader);
+    const int y0 = 3;
+    const int y1 = qMax(y0, frozenHeader->height() - 4);
+
+    const int sec0Left = frozenHeader->sectionViewportPosition(0);
+    const QColor sec0Bg = frozenImg.pixelColor(sec0Left + 6, frozenHeader->height() / 2);
+    EXPECT_EQ(countForegroundInBand(frozenImg, sec0Left, 6, 24, y0, y1, sec0Bg), 0);
+    EXPECT_GT(countForegroundInBand(frozenImg, sec0Left, 40, 80, y0, y1, sec0Bg), 10);
+
+    const int sec1Left = frozenHeader->sectionViewportPosition(1);
+    const int sec2Left = frozenHeader->sectionViewportPosition(2);
+    const int sec3Left = frozenHeader->sectionViewportPosition(3);
+    EXPECT_EQ(countSectionDiffInBand(frozenImg, sec1Left, frozenImg, sec2Left, 4, 20, y0, y1), 0);
+    EXPECT_GT(countSectionDiffInBand(frozenImg, sec1Left, frozenImg, sec3Left, 4, 20, y0, y1), 15);
+}
+
+TEST_F(TableHeader, SortableHeaderReservesSortArrowWidthUnderStyleSheet) {
+    xTableView table(nullptr, true);
+    QStandardItemModel model(2, 1);
+    model.setHorizontalHeaderLabels({QString()});
+    model.setItem(0, 0, new QStandardItem(QStringLiteral("2")));
+    model.setItem(1, 0, new QStandardItem(QStringLiteral("1")));
+    table.setSourceModel(&model);
+
+    QHeaderView* header = table.horizontalHeader();
+    ASSERT_NE(header, nullptr);
+    header->setStretchLastSection(false);
+    header->resizeSection(0, 76);
+    table.sortBy(0, Qt::AscendingOrder);
+
+    table.resize(240, 140);
+    table.show();
+    ASSERT_TRUE(QTest::qWaitForWindowExposed(&table));
+    QCoreApplication::processEvents();
+
+    const QImage emptySortedImg = renderWidget(header);
+
+    model.setHorizontalHeaderLabels({QStringLiteral("WWW_SORTED_LONG_HEADER_TEXT")});
+    QCoreApplication::processEvents();
+    const QImage textSortedImg = renderWidget(header);
+
+    QStyleOptionHeaderV2 opt;
+    opt.initFrom(header);
+    opt.orientation = Qt::Horizontal;
+    opt.state |= QStyle::State_Horizontal;
+    opt.rect = QRect(0, 0, header->sectionSize(0), header->height());
+    opt.sortIndicator = QStyleOptionHeader::SortDown;
+    const QRect arrowRect = header->style()->subElementRect(QStyle::SE_HeaderArrow, &opt, header);
+    ASSERT_TRUE(arrowRect.isValid());
+
+    const int y0 = 3;
+    const int y1 = qMax(y0, header->height() - 4);
+    if (arrowRect.bottom() >= opt.rect.center().y() && arrowRect.left() > opt.rect.center().x()) {
+        EXPECT_EQ(countSectionDiffInBand(emptySortedImg, 0, textSortedImg, 0, arrowRect.left(),
+                                         arrowRect.right(), y0, y1, 0),
+                  0);
+        EXPECT_GT(countSectionDiffInBand(emptySortedImg, 0, textSortedImg, 0, 4,
+                                         arrowRect.left() - 3, y0, y1),
+                  15);
+    }
+}
+
+TEST_F(TableHeader, MultiLineHeaderFittingHorizontallyStaysCentered) {
+    xTableView table(nullptr, false);
+    const QString multiLine = QStringLiteral("Parameter\n(Seconds)");
+    QStandardItemModel model(1, 1);
+    model.setHorizontalHeaderLabels({multiLine});
+    model.setItem(0, 0, new QStandardItem(QStringLiteral("1")));
+    table.setSourceModel(&model);
+
+    QHeaderView* header = table.horizontalHeader();
+    ASSERT_NE(header, nullptr);
+    const QFontMetrics fm = header->fontMetrics();
+    const int maxLineW = qMax(fm.horizontalAdvance(QStringLiteral("Parameter")),
+                              fm.horizontalAdvance(QStringLiteral("(Seconds)")));
+    const int secWidth = maxLineW + 56;
+    ASSERT_GT(fm.horizontalAdvance(multiLine), secWidth);
+
+    header->setStretchLastSection(false);
+    header->setFixedHeight(44);
+    header->resizeSection(0, secWidth);
+
+    table.resize(secWidth + 80, 140);
     table.show();
     ASSERT_TRUE(QTest::qWaitForWindowExposed(&table));
     QCoreApplication::processEvents();
 
     const QImage headerImg = renderWidget(header);
-    int greenIconPixels = 0;
-    int rightTextPixels = 0;
-    const QColor bg = headerImg.pixelColor(header->sectionSize(0) - 3, 2);
-    for (int y = 3; y <= header->height() - 4; ++y) {
-        for (int x = 2; x <= 24 && x < headerImg.width(); ++x) {
-            const QColor c = headerImg.pixelColor(x, y);
-            if (c.green() > 150 && c.red() < 80 && c.blue() < 80) {
-                ++greenIconPixels;
-            }
+    const int y0 = 4;
+    const int y1 = header->height() - 5;
+    const QColor bg = headerImg.pixelColor(6, header->height() / 2);
+    // 单行宽度未超列宽（尽管单行拼接总长超过列宽），不应被误判为溢出左对齐或被二次截断。
+    EXPECT_EQ(countForegroundInBand(headerImg, 0, 4, 18, y0, y1, bg), 0);
+    EXPECT_GT(countForegroundInBand(headerImg, 0, 26, secWidth - 26, y0, y1, bg), 15);
+}
+
+TEST_F(TableHeader, MousePressInTableBodyDoesNotPaintHeaderSunkenAndDarkThemeWorks) {
+    class InspectableHeader : public xCheckableHeaderView {
+      public:
+        using xCheckableHeaderView::xCheckableHeaderView;
+        QStyle::State querySectionState(int logicalIndex) const {
+            QStyleOptionHeaderV2 opt;
+            initStyleOption(&opt);
+            initStyleOptionForIndex(&opt, logicalIndex);
+            return opt.state;
         }
-        for (int x = 25; x <= header->sectionSize(0) - 5 && x < headerImg.width(); ++x) {
-            const QColor c = headerImg.pixelColor(x, y);
-            const int diff = qAbs(c.red() - bg.red()) + qAbs(c.green() - bg.green()) +
-                             qAbs(c.blue() - bg.blue());
-            if (diff > 60) {
-                ++rightTextPixels;
-            }
+    };
+
+    const QPalette origPalette = QApplication::palette();
+    auto restorePalette = qScopeGuard([&origPalette]() { QApplication::setPalette(origPalette); });
+
+    QPalette darkPalette = origPalette;
+    darkPalette.setColor(QPalette::Window, QColor(30, 30, 36));
+    darkPalette.setColor(QPalette::WindowText, Qt::white);
+    QApplication::setPalette(darkPalette);
+
+    xTableView table(nullptr, true);
+    QStandardItemModel model(2, 3);
+    model.setHorizontalHeaderLabels({
+        QStringLiteral("ALPHA_0000000000000000"),
+        QStringLiteral("ALPHA_9999999999999999"),
+        QStringLiteral("OMEGA_0000000000000000"),
+    });
+    for (int r = 0; r < 2; ++r) {
+        for (int c = 0; c < 3; ++c) {
+            model.setItem(r, c, new QStandardItem(QString::number(c)));
         }
     }
-    EXPECT_GT(greenIconPixels, 40);
-    EXPECT_GT(rightTextPixels, 15);
+    table.setSourceModel(&model);
+
+    QHeaderView* header = table.horizontalHeader();
+    ASSERT_NE(header, nullptr);
+    header->setStretchLastSection(false);
+    header->resizeSection(0, 52);
+    header->resizeSection(1, 52);
+    header->resizeSection(2, 52);
+
+    table.resize(260, 150);
+    table.show();
+    ASSERT_TRUE(QTest::qWaitForWindowExposed(&table));
+    QCoreApplication::processEvents();
+
+    // 暗色主题下窄列仍保留左侧前缀并截断右侧。
+    const QImage darkHeaderImg = renderWidget(header);
+    const int y0 = 3;
+    const int y1 = qMax(y0, header->height() - 4);
+    const int sec0Left = header->sectionViewportPosition(0);
+    const int sec1Left = header->sectionViewportPosition(1);
+    const int sec2Left = header->sectionViewportPosition(2);
+    EXPECT_EQ(
+        countSectionDiffInBand(darkHeaderImg, sec0Left, darkHeaderImg, sec1Left, 4, 20, y0, y1), 0);
+    EXPECT_GT(
+        countSectionDiffInBand(darkHeaderImg, sec0Left, darkHeaderImg, sec2Left, 4, 20, y0, y1),
+        15);
+
+    // 在表格体按下左键时，表头节不应进入 State_Sunken。
+    InspectableHeader inspectHeader(Qt::Horizontal, &table);
+    inspectHeader.setModel(table.model());
+    QTest::mousePress(table.viewport(), Qt::LeftButton, Qt::NoModifier, QPoint(10, 10));
+    EXPECT_EQ(inspectHeader.querySectionState(0) & QStyle::State_Sunken, QStyle::State_None);
+    QTest::mouseRelease(table.viewport(), Qt::LeftButton, Qt::NoModifier, QPoint(10, 10));
 }
 
 }  // namespace
