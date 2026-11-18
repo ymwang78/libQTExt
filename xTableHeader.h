@@ -40,7 +40,6 @@ public:
     void mousePressEvent(QMouseEvent *event) override;
 
   private:
-
     // This function calculates the rectangle area for the checkbox
     QRect checkBoxRect(const QRect &sourceRect) const;
 

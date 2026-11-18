@@ -423,6 +423,7 @@ static void applyTableTheme(QTableView *table, bool darkMode) {
             "QHeaderView::section {"
             "    background-color: rgb(65, 50, 59);"
             "    color: white;"
+            "    padding: 0px 3px;"
             "    border: 1px solid rgb(70, 70, 80);"
             "}");
     } else {
@@ -444,6 +445,7 @@ static void applyTableTheme(QTableView *table, bool darkMode) {
             "QHeaderView::section {"
             "    background-color: rgb(235, 235, 235);"
             "    color: black;"
+            "    padding: 0px 3px;"
             "    border: 1px solid rgb(210, 210, 210);"
             "}");
     }

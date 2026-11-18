@@ -9,6 +9,36 @@
 // 
 // ***************************************************************
 #include "xTableHeader.h"
+#include <QApplication>
+#include <QCursor>
+#include <QStyleOptionHeader>
+#include <QtGlobal>
+
+namespace {
+
+void elideHeaderOptionRight(QStyleOptionHeader *option, int availWidth) {
+    if (!option || option->text.isEmpty()) {
+        return;
+    }
+    const int textWidth = option->fontMetrics.horizontalAdvance(option->text);
+    if (textWidth <= availWidth) {
+        return;
+    }
+    const Qt::Alignment verticalAlign =
+        (option->textAlignment & Qt::AlignVertical_Mask)
+            ? (option->textAlignment & Qt::AlignVertical_Mask)
+            : Qt::AlignVCenter;
+    option->textAlignment = Qt::AlignLeft | verticalAlign;
+    if (availWidth > 0) {
+        const QString elided =
+            option->fontMetrics.elidedText(option->text, Qt::ElideRight, availWidth);
+        if (!elided.isEmpty() && elided.at(0) == option->text.at(0)) {
+            option->text = elided;
+        }
+    }
+}
+
+}  // namespace
 
 xCheckableHeaderView::xCheckableHeaderView(Qt::Orientation orientation, QWidget *parent)
     : QHeaderView(orientation, parent) {
@@ -37,15 +67,89 @@ void xCheckableHeaderView::setCheckState(int column, Qt::CheckState state) {
 
 void xCheckableHeaderView::paintSection(QPainter *painter, const QRect &rect,
                                         int logicalIndex) const {
-    painter->save();
-    // 首先，调用基类方法绘制默认的表头背景、排序箭头等
-    QHeaderView::paintSection(painter, rect, logicalIndex);
-    painter->restore();
-
-    // 如果当前列不是布尔列，直接返回
-    if (!bool_columns_.contains(logicalIndex)) {
+    if (!rect.isValid()) {
         return;
     }
+
+    if (orientation() != Qt::Horizontal) {
+        painter->save();
+        QHeaderView::paintSection(painter, rect, logicalIndex);
+        painter->restore();
+        return;
+    }
+
+    QStyleOptionHeaderV2 headerOpt;
+    initStyleOption(&headerOpt);
+    QStyle::State extraState = QStyle::State_None;
+    if (isEnabled()) {
+        extraState |= QStyle::State_Enabled;
+    }
+    if (window() && window()->isActiveWindow()) {
+        extraState |= QStyle::State_Active;
+    }
+    if (sectionsClickable() && isEnabled() && viewport()) {
+        const QPoint cursorPos = viewport()->mapFromGlobal(QCursor::pos());
+        if (rect.contains(cursorPos)) {
+            extraState |= QStyle::State_MouseOver;
+            if (QApplication::mouseButtons() & Qt::LeftButton) {
+                extraState |= QStyle::State_Sunken;
+            }
+        }
+    }
+    headerOpt.rect = rect;
+    QHeaderView::initStyleOptionForIndex(&headerOpt, logicalIndex);
+    headerOpt.state |= extraState;
+
+    QRect labelRect = style()->subElementRect(QStyle::SE_HeaderLabel, &headerOpt, this);
+    if (!labelRect.isValid()) {
+        const int margin = qMax(2, style()->pixelMetric(QStyle::PM_HeaderMargin, &headerOpt, this));
+        labelRect = rect.adjusted(margin, 0, -margin, 0);
+    }
+
+    if (!bool_columns_.contains(logicalIndex)) {
+        elideHeaderOptionRight(&headerOpt, labelRect.width());
+        painter->save();
+        style()->drawControl(QStyle::CE_Header, &headerOpt, painter, this);
+        painter->restore();
+        return;
+    }
+
+    // 布尔列左侧带有复选框：当列较窄导致居中文本与复选框重叠或超出列宽时，在复选框右侧区域左对齐截断绘制
+    const QRect cbRect = checkBoxRect(rect);
+    const int minTextLeft = cbRect.right() + 4;
+    const int textWidth = headerOpt.fontMetrics.horizontalAdvance(headerOpt.text);
+    const int centeredLeft = labelRect.left() + (labelRect.width() - textWidth) / 2;
+
+    painter->save();
+    if (!headerOpt.text.isEmpty() &&
+        (centeredLeft < minTextLeft || textWidth > labelRect.width())) {
+        QStyleOptionHeaderV2 sectionOpt = headerOpt;
+        sectionOpt.text.clear();
+        sectionOpt.icon = QIcon();
+        style()->drawControl(QStyle::CE_HeaderSection, &sectionOpt, painter, this);
+        if (headerOpt.sortIndicator != QStyleOptionHeader::None) {
+            QStyleOptionHeaderV2 arrowOpt = headerOpt;
+            arrowOpt.rect = style()->subElementRect(QStyle::SE_HeaderArrow, &headerOpt, this);
+            if (arrowOpt.rect.isValid()) {
+                style()->drawPrimitive(QStyle::PE_IndicatorHeaderArrow, &arrowOpt, painter, this);
+            }
+        }
+        QRect availRect = labelRect;
+        if (availRect.left() < minTextLeft) {
+            availRect.setLeft(minTextLeft);
+        }
+        if (availRect.width() > 0) {
+            QStyleOptionHeaderV2 labelOpt = headerOpt;
+            labelOpt.rect = availRect;
+            labelOpt.textAlignment = Qt::AlignLeft | Qt::AlignVCenter;
+            elideHeaderOptionRight(&labelOpt, availRect.width());
+            painter->setClipRect(availRect);
+            style()->drawControl(QStyle::CE_HeaderLabel, &labelOpt, painter, this);
+        }
+    } else {
+        style()->drawControl(QStyle::CE_Header, &headerOpt, painter, this);
+    }
+    painter->restore();
 
     // --- 开始绘制自定义内容 ---
 
