@@ -7,6 +7,7 @@
 #include <gtest/gtest.h>
 
 #include <QApplication>
+#include <QCursor>
 #include <QFileInfo>
 #include <QFontDatabase>
 #include <QHeaderView>
@@ -415,7 +416,7 @@ TEST_F(TableHeader, SortableHeaderReservesSortArrowWidthUnderStyleSheet) {
 
 TEST_F(TableHeader, MultiLineHeaderFittingHorizontallyStaysCentered) {
     xTableView table(nullptr, false);
-    const QString multiLine = QStringLiteral("Parameter\n(Seconds)");
+    const QString multiLine = QStringLiteral("ControllerGain\n(Milliseconds)");
     QStandardItemModel model(1, 1);
     model.setHorizontalHeaderLabels({multiLine});
     model.setItem(0, 0, new QStandardItem(QStringLiteral("1")));
@@ -424,9 +425,9 @@ TEST_F(TableHeader, MultiLineHeaderFittingHorizontallyStaysCentered) {
     QHeaderView* header = table.horizontalHeader();
     ASSERT_NE(header, nullptr);
     const QFontMetrics fm = header->fontMetrics();
-    const int maxLineW = qMax(fm.horizontalAdvance(QStringLiteral("Parameter")),
-                              fm.horizontalAdvance(QStringLiteral("(Seconds)")));
-    const int secWidth = maxLineW + 56;
+    const int maxLineW = qMax(fm.horizontalAdvance(QStringLiteral("ControllerGain")),
+                              fm.horizontalAdvance(QStringLiteral("(Milliseconds)")));
+    const int secWidth = maxLineW + 64;
     ASSERT_GT(fm.horizontalAdvance(multiLine), secWidth);
 
     header->setStretchLastSection(false);
@@ -445,20 +446,27 @@ TEST_F(TableHeader, MultiLineHeaderFittingHorizontallyStaysCentered) {
     // 单行宽度未超列宽（尽管单行拼接总长超过列宽），不应被误判为溢出左对齐或被二次截断。
     EXPECT_EQ(countForegroundInBand(headerImg, 0, 4, 18, y0, y1, bg), 0);
     EXPECT_GT(countForegroundInBand(headerImg, 0, 26, secWidth - 26, y0, y1, bg), 15);
+
+    // 布尔列变体：每行都放得下且居中起点在复选框右侧（走布尔列宽裕的 else 分支），
+    // 第二行同样不应被 CE_HeaderLabel 按整串单行总长误截断。
+    table.setBoolColumn(0, true);
+    QCoreApplication::processEvents();
+    ASSERT_EQ(header->textElideMode(), Qt::ElideRight);
+    const QImage boolHeaderImg = renderWidget(header);
+
+    header->setTextElideMode(Qt::ElideNone);
+    QCoreApplication::processEvents();
+    const QImage boolUnelidedRefImg = renderWidget(header);
+    EXPECT_EQ(countSectionDiffInBand(boolHeaderImg, 0, boolUnelidedRefImg, 0, 0, secWidth - 1, 0,
+                                     header->height() - 1, 0),
+              0);
+
+    // 垂直表头保持 Qt 默认的 ElideNone，不截断多行垂直标签。
+    xCheckableHeaderView vHeader(Qt::Vertical);
+    EXPECT_EQ(vHeader.textElideMode(), Qt::ElideNone);
 }
 
 TEST_F(TableHeader, MousePressInTableBodyDoesNotPaintHeaderSunkenAndDarkThemeWorks) {
-    class InspectableHeader : public xCheckableHeaderView {
-      public:
-        using xCheckableHeaderView::xCheckableHeaderView;
-        QStyle::State querySectionState(int logicalIndex) const {
-            QStyleOptionHeaderV2 opt;
-            initStyleOption(&opt);
-            initStyleOptionForIndex(&opt, logicalIndex);
-            return opt.state;
-        }
-    };
-
     const QPalette origPalette = QApplication::palette();
     auto restorePalette = qScopeGuard([&origPalette]() { QApplication::setPalette(origPalette); });
 
@@ -506,12 +514,58 @@ TEST_F(TableHeader, MousePressInTableBodyDoesNotPaintHeaderSunkenAndDarkThemeWor
         countSectionDiffInBand(darkHeaderImg, sec0Left, darkHeaderImg, sec2Left, 4, 20, y0, y1),
         15);
 
-    // 在表格体按下左键时，表头节不应进入 State_Sunken。
-    InspectableHeader inspectHeader(Qt::Horizontal, &table);
-    inspectHeader.setModel(table.model());
-    QTest::mousePress(table.viewport(), Qt::LeftButton, Qt::NoModifier, QPoint(10, 10));
-    EXPECT_EQ(inspectHeader.querySectionState(0) & QStyle::State_Sunken, QStyle::State_None);
-    QTest::mouseRelease(table.viewport(), Qt::LeftButton, Qt::NoModifier, QPoint(10, 10));
+    // 真实走 xCheckableHeaderView::paintSection 验证按下态：
+    // 为表头配置显式的 :pressed 红色背景规则，确认真正被按下的列（列 1）呈现按下色，
+    // 而在按住左键把指针移到列 0 上、或在表格视口按住左键时，列 0 不会被误画成按下态。
+    QTableView pressTable;
+    auto* pressHeader = new xCheckableHeaderView(Qt::Horizontal, &pressTable);
+    pressTable.setHorizontalHeader(pressHeader);
+    pressHeader->setHighlightSections(false);
+    pressHeader->setSectionsMovable(false);
+    pressHeader->setStyleSheet(
+        "QHeaderView::section { background-color: rgb(230, 230, 230); color: black;"
+        " border: 1px solid rgb(180, 180, 180); }"
+        "QHeaderView::section:pressed { background-color: rgb(200, 40, 40); }");
+
+    QStandardItemModel pressModel(3, 2);
+    pressModel.setHorizontalHeaderLabels({QStringLiteral("Col0"), QStringLiteral("Col1")});
+    for (int r = 0; r < 3; ++r) {
+        for (int c = 0; c < 2; ++c) {
+            pressModel.setItem(r, c, new QStandardItem(QString::number(r)));
+        }
+    }
+    pressTable.setModel(&pressModel);
+    pressHeader->setStretchLastSection(false);
+    pressHeader->resizeSection(0, 80);
+    pressHeader->resizeSection(1, 80);
+    pressTable.resize(220, 140);
+    pressTable.show();
+    ASSERT_TRUE(QTest::qWaitForWindowExposed(&pressTable));
+    QCoreApplication::processEvents();
+
+    const QImage idleHeaderImg = renderWidget(pressHeader);
+    const int pH = pressHeader->height();
+    const QPoint sec0Pt(20, pH / 2);
+    const QPoint sec1Pt(120, pH / 2);
+
+    // 1) 正向对照：在表头列 1 按住左键时，列 1 呈现 :pressed 红色背景，列 0 保持不变。
+    QTest::mousePress(pressHeader->viewport(), Qt::LeftButton, Qt::NoModifier, sec1Pt);
+    QCoreApplication::processEvents();
+    const QImage headerPressImg = renderWidget(pressHeader);
+    EXPECT_GT(countSectionDiffInBand(idleHeaderImg, 80, headerPressImg, 80, 2, 77, 2, pH - 3), 50);
+    EXPECT_EQ(countSectionDiffInBand(idleHeaderImg, 0, headerPressImg, 0, 2, 77, 2, pH - 3, 0), 0);
+    QTest::mouseRelease(pressHeader->viewport(), Qt::LeftButton, Qt::NoModifier, sec1Pt);
+    QCoreApplication::processEvents();
+
+    // 2) 反向回归：在表格视口按住左键拖选并将全局光标移到表头列 0 上，列 0 不应误进入 :pressed 态。
+    QTest::mousePress(pressTable.viewport(), Qt::LeftButton, Qt::NoModifier, QPoint(120, 40));
+    QCursor::setPos(pressHeader->viewport()->mapToGlobal(sec0Pt));
+    QCoreApplication::processEvents();
+    const QImage bodyPressHeaderImg = renderWidget(pressHeader);
+    EXPECT_EQ(countSectionDiffInBand(idleHeaderImg, 0, bodyPressHeaderImg, 0, 2, 77, 2, pH - 3, 0),
+              0);
+    QTest::mouseRelease(pressTable.viewport(), Qt::LeftButton, Qt::NoModifier, QPoint(120, 40));
+    QCoreApplication::processEvents();
 }
 
 }  // namespace

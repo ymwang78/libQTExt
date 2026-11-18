@@ -119,7 +119,9 @@ xCheckableHeaderView::xCheckableHeaderView(Qt::Orientation orientation, QWidget*
     : QHeaderView(orientation, parent) {
     // 开启 setSectionsClickable 以便接收 sectionClicked 信号，从而不影响原有的排序功能
     setSectionsClickable(true);
-    setTextElideMode(Qt::ElideRight);
+    if (orientation == Qt::Horizontal) {
+        setTextElideMode(Qt::ElideRight);
+    }
 }
 
 void xCheckableHeaderView::setBoolColumn(int column, bool isBool) {
@@ -166,6 +168,9 @@ void xCheckableHeaderView::paintSection(QPainter* painter, const QRect& rect,
     initStyleOptionForIndex(&headerOpt, logicalIndex);
     // 与 QHeaderView::paintSection 保持一致：在 initStyleOptionForIndex 之后设置节矩形。
     headerOpt.rect = rect;
+    // 水平表头统一由本函数按行度量与省略，置为 ElideNone 防止 CE_HeaderLabel（含布尔列宽裕的 else
+    // 分支） 把多行表头按整串单行总长误截断。
+    headerOpt.textElideMode = Qt::ElideNone;
 
     const QBrush nBrushButton = headerOpt.palette.brush(QPalette::Button);
     const QBrush nBrushWindow = headerOpt.palette.brush(QPalette::Window);
