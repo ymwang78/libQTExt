@@ -6,33 +6,75 @@
 //  This file is a part of project libQTExt.
 //  Copyright (C) 2025 - All Rights Reserved
 // ***************************************************************
-// 
+//
 // ***************************************************************
 #include "xTableHeader.h"
-#include <QApplication>
-#include <QCursor>
 #include <QStyleOptionHeader>
 #include <QtGlobal>
 
 namespace {
 
-void elideHeaderOptionRight(QStyleOptionHeader *option, int availWidth) {
+// Qt 6 的 QHeaderView::initialize()（qheaderview.cpp:336，基于 Qt 6.10.3 验证）会显式把
+// d->textElideMode 重置为 Qt::ElideNone（覆盖 QAbstractItemView 默认的 Qt::ElideRight），导致
+// QCommonStyle::CE_HeaderLabel 不做省略、直接按 Qt::AlignCenter 绘制完整文本并向两侧同时裁剪
+// （窄列只露出中间字符，如 "g High Li"）。
+// 这里不在 initStyleOptionForIndex() 中无条件改为 AlignLeft，原因有三：
+// 1. 列宽充足时必须保留调用方配置的居中/右对齐（initStyleOptionForIndex 调用时 opt.rect
+// 尚未写入）；
+// 2. 极窄列下 QFontMetrics::elidedText(..., Qt::ElideRight) 若连首字符都放不下会返回空串或单独的
+//    "…"，此时回退到左对齐硬裁剪（textElideMode = ElideNone）仍能保留首字符；
+// 3. 布尔列（bool_columns_）在窄列下还需把文本区左边界推到复选框右侧，避免文字画到复选框下方。
+
+int headerIconReserveWidth(const QStyle* style, const QStyleOptionHeader* option,
+                           const QPainter* painter, const QWidget* widget) {
+    if (!style || !option || option->icon.isNull()) {
+        return 0;
+    }
+    const int iconExtent = style->pixelMetric(QStyle::PM_SmallIconSize, option, widget);
+    const qreal dpr = (painter && painter->device()) ? painter->device()->devicePixelRatio()
+                                                     : (widget ? widget->devicePixelRatio() : 1.0);
+    const QPixmap pixmap = option->icon.pixmap(
+        QSize(iconExtent, iconExtent), dpr,
+        (option->state & QStyle::State_Enabled) ? QIcon::Normal : QIcon::Disabled);
+    if (pixmap.isNull()) {
+        return 0;
+    }
+    const qreal pmDpr = pixmap.devicePixelRatio() > 0.0 ? pixmap.devicePixelRatio() : 1.0;
+    const int pixw = static_cast<int>(pixmap.width() / pmDpr);
+    const int margin = style->pixelMetric(QStyle::PM_HeaderMargin, option, widget);
+    return pixw + margin;
+}
+
+QFontMetrics effectiveHeaderFontMetrics(const QStyleOptionHeader* option, const QPainter* painter) {
+    if (option && (option->state & QStyle::State_On) && painter) {
+        QFont fnt = painter->font();
+        if (!(fnt.resolveMask() & QFont::WeightResolved)) {
+            fnt.setBold(true);
+            return QFontMetrics(fnt);
+        }
+    }
+    return option ? option->fontMetrics : QFontMetrics(QFont());
+}
+
+void elideHeaderOptionRight(QStyleOptionHeaderV2* option, const QFontMetrics& fm, int availWidth) {
     if (!option || option->text.isEmpty()) {
         return;
     }
-    const int textWidth = option->fontMetrics.horizontalAdvance(option->text);
+    const int textWidth = fm.horizontalAdvance(option->text);
     if (textWidth <= availWidth) {
         return;
     }
-    const Qt::Alignment verticalAlign =
-        (option->textAlignment & Qt::AlignVertical_Mask)
-            ? (option->textAlignment & Qt::AlignVertical_Mask)
-            : Qt::AlignVCenter;
+    const Qt::Alignment verticalAlign = (option->textAlignment & Qt::AlignVertical_Mask)
+                                            ? (option->textAlignment & Qt::AlignVertical_Mask)
+                                            : Qt::AlignVCenter;
     option->textAlignment = Qt::AlignLeft | verticalAlign;
+    option->textElideMode = Qt::ElideNone;
     if (availWidth > 0) {
-        const QString elided =
-            option->fontMetrics.elidedText(option->text, Qt::ElideRight, availWidth);
-        if (!elided.isEmpty() && elided.at(0) == option->text.at(0)) {
+        const QString elided = fm.elidedText(option->text, Qt::ElideRight, availWidth);
+        const bool onlyEllipsis =
+            (elided == QStringView(u"\u2026") || elided == QStringView(u"...") ||
+             elided == QStringView(u"\u200d\u2026") || elided == QStringView(u"\u200d..."));
+        if (!elided.isEmpty() && !onlyEllipsis && elided.at(0) == option->text.at(0)) {
             option->text = elided;
         }
     }
@@ -40,7 +82,7 @@ void elideHeaderOptionRight(QStyleOptionHeader *option, int availWidth) {
 
 }  // namespace
 
-xCheckableHeaderView::xCheckableHeaderView(Qt::Orientation orientation, QWidget *parent)
+xCheckableHeaderView::xCheckableHeaderView(Qt::Orientation orientation, QWidget* parent)
     : QHeaderView(orientation, parent) {
     // 开启 setSectionsClickable 以便接收 sectionClicked 信号，从而不影响原有的排序功能
     setSectionsClickable(true);
@@ -65,7 +107,7 @@ void xCheckableHeaderView::setCheckState(int column, Qt::CheckState state) {
     }
 }
 
-void xCheckableHeaderView::paintSection(QPainter *painter, const QRect &rect,
+void xCheckableHeaderView::paintSection(QPainter* painter, const QRect& rect,
                                         int logicalIndex) const {
     if (!rect.isValid()) {
         return;
@@ -75,58 +117,88 @@ void xCheckableHeaderView::paintSection(QPainter *painter, const QRect &rect,
         painter->save();
         QHeaderView::paintSection(painter, rect, logicalIndex);
         painter->restore();
+        if (bool_columns_.contains(logicalIndex)) {
+            paintCheckBox(painter, rect, logicalIndex);
+        }
         return;
     }
 
     QStyleOptionHeaderV2 headerOpt;
     initStyleOption(&headerOpt);
-    QStyle::State extraState = QStyle::State_None;
-    if (isEnabled()) {
-        extraState |= QStyle::State_Enabled;
-    }
-    if (window() && window()->isActiveWindow()) {
-        extraState |= QStyle::State_Active;
-    }
-    if (sectionsClickable() && isEnabled() && viewport()) {
-        const QPoint cursorPos = viewport()->mapFromGlobal(QCursor::pos());
-        if (rect.contains(cursorPos)) {
-            extraState |= QStyle::State_MouseOver;
-            if (QApplication::mouseButtons() & Qt::LeftButton) {
-                extraState |= QStyle::State_Sunken;
-            }
-        }
-    }
-    headerOpt.rect = rect;
-    QHeaderView::initStyleOptionForIndex(&headerOpt, logicalIndex);
-    headerOpt.state |= extraState;
 
-    QRect labelRect = style()->subElementRect(QStyle::SE_HeaderLabel, &headerOpt, this);
-    if (!labelRect.isValid()) {
-        const int margin = qMax(2, style()->pixelMetric(QStyle::PM_HeaderMargin, &headerOpt, this));
-        labelRect = rect.adjusted(margin, 0, -margin, 0);
-    }
+    const QBrush oBrushButton = headerOpt.palette.brush(QPalette::Button);
+    const QBrush oBrushWindow = headerOpt.palette.brush(QPalette::Window);
+
+    initStyleOptionForIndex(&headerOpt, logicalIndex);
+    // 与 QHeaderView::paintSection 保持一致：在 initStyleOptionForIndex 之后设置节矩形。
+    headerOpt.rect = rect;
+
+    const QBrush nBrushButton = headerOpt.palette.brush(QPalette::Button);
+    const QBrush nBrushWindow = headerOpt.palette.brush(QPalette::Window);
+
+    const QRect labelRect = style()->subElementRect(QStyle::SE_HeaderLabel, &headerOpt, this);
+    const int iconReserve = headerIconReserveWidth(style(), &headerOpt, painter, this);
+    const QFontMetrics fm = effectiveHeaderFontMetrics(&headerOpt, painter);
 
     if (!bool_columns_.contains(logicalIndex)) {
-        elideHeaderOptionRight(&headerOpt, labelRect.width());
+        if (labelRect.isValid()) {
+            elideHeaderOptionRight(&headerOpt, fm, labelRect.width() - iconReserve);
+        }
         painter->save();
+        if (oBrushButton != nBrushButton || oBrushWindow != nBrushWindow) {
+            painter->setBrushOrigin(headerOpt.rect.topLeft());
+        }
         style()->drawControl(QStyle::CE_Header, &headerOpt, painter, this);
         painter->restore();
         return;
     }
 
-    // 布尔列左侧带有复选框：当列较窄导致居中文本与复选框重叠或超出列宽时，在复选框右侧区域左对齐截断绘制
+    // 布尔列左侧带有复选框：当列较窄导致居中内容与复选框重叠或超出列宽时，在复选框右侧区域左对齐截断绘制
     const QRect cbRect = checkBoxRect(rect);
     const int minTextLeft = cbRect.right() + 4;
-    const int textWidth = headerOpt.fontMetrics.horizontalAdvance(headerOpt.text);
-    const int centeredLeft = labelRect.left() + (labelRect.width() - textWidth) / 2;
+    const int textWidth = fm.horizontalAdvance(headerOpt.text);
+    const int labelAvailWidth = labelRect.isValid() ? (labelRect.width() - iconReserve) : 0;
+    const int centeredLeft = labelRect.left() + iconReserve + (labelAvailWidth - textWidth) / 2;
+    const bool iconOverlapsCheckbox =
+        labelRect.isValid() && !headerOpt.icon.isNull() && labelRect.left() < minTextLeft;
+    const bool textNeedsShiftOrElide =
+        !headerOpt.text.isEmpty() &&
+        (!labelRect.isValid() || (headerOpt.icon.isNull() && centeredLeft < minTextLeft) ||
+         textWidth > labelAvailWidth);
 
     painter->save();
-    if (!headerOpt.text.isEmpty() &&
-        (centeredLeft < minTextLeft || textWidth > labelRect.width())) {
+    if (oBrushButton != nBrushButton || oBrushWindow != nBrushWindow) {
+        painter->setBrushOrigin(headerOpt.rect.topLeft());
+    }
+    if (iconOverlapsCheckbox || textNeedsShiftOrElide) {
+        painter->setClipRect(rect, Qt::IntersectClip);
         QStyleOptionHeaderV2 sectionOpt = headerOpt;
         sectionOpt.text.clear();
         sectionOpt.icon = QIcon();
         style()->drawControl(QStyle::CE_HeaderSection, &sectionOpt, painter, this);
+        if (labelRect.isValid()) {
+            QRect availRect = labelRect;
+            if (availRect.left() < minTextLeft) {
+                availRect.setLeft(minTextLeft);
+            }
+            if (availRect.isValid()) {
+                QStyleOptionHeaderV2 labelOpt = headerOpt;
+                labelOpt.rect = availRect;
+                if (headerOpt.icon.isNull() && centeredLeft < minTextLeft) {
+                    const Qt::Alignment verticalAlign =
+                        (labelOpt.textAlignment & Qt::AlignVertical_Mask)
+                            ? (labelOpt.textAlignment & Qt::AlignVertical_Mask)
+                            : Qt::AlignVCenter;
+                    labelOpt.textAlignment = Qt::AlignLeft | verticalAlign;
+                    labelOpt.textElideMode = Qt::ElideNone;
+                }
+                elideHeaderOptionRight(&labelOpt, fm, availRect.width() - iconReserve);
+                painter->save();
+                painter->setClipRect(availRect, Qt::IntersectClip);
+                style()->drawControl(QStyle::CE_HeaderLabel, &labelOpt, painter, this);
+                painter->restore();
+            }
+        }
         if (headerOpt.sortIndicator != QStyleOptionHeader::None) {
             QStyleOptionHeaderV2 arrowOpt = headerOpt;
             arrowOpt.rect = style()->subElementRect(QStyle::SE_HeaderArrow, &headerOpt, this);
@@ -134,26 +206,16 @@ void xCheckableHeaderView::paintSection(QPainter *painter, const QRect &rect,
                 style()->drawPrimitive(QStyle::PE_IndicatorHeaderArrow, &arrowOpt, painter, this);
             }
         }
-        QRect availRect = labelRect;
-        if (availRect.left() < minTextLeft) {
-            availRect.setLeft(minTextLeft);
-        }
-        if (availRect.width() > 0) {
-            QStyleOptionHeaderV2 labelOpt = headerOpt;
-            labelOpt.rect = availRect;
-            labelOpt.textAlignment = Qt::AlignLeft | Qt::AlignVCenter;
-            elideHeaderOptionRight(&labelOpt, availRect.width());
-            painter->setClipRect(availRect);
-            style()->drawControl(QStyle::CE_HeaderLabel, &labelOpt, painter, this);
-        }
     } else {
         style()->drawControl(QStyle::CE_Header, &headerOpt, painter, this);
     }
     painter->restore();
 
-    // --- 开始绘制自定义内容 ---
+    paintCheckBox(painter, rect, logicalIndex);
+}
 
-    // 准备绘制复选框
+void xCheckableHeaderView::paintCheckBox(QPainter* painter, const QRect& rect,
+                                         int logicalIndex) const {
     QStyleOptionButton option;
     option.rect = checkBoxRect(rect);  // 获取复选框的位置
     option.state = QStyle::State_Enabled | QStyle::State_Raised;
@@ -176,7 +238,7 @@ void xCheckableHeaderView::paintSection(QPainter *painter, const QRect &rect,
     style()->drawControl(QStyle::CE_CheckBox, &option, painter);
 }
 
-void xCheckableHeaderView::mousePressEvent(QMouseEvent *event) {
+void xCheckableHeaderView::mousePressEvent(QMouseEvent* event) {
     // 获取被点击的列索引
     int logicalIndex = logicalIndexAt(event->pos());
 
@@ -216,7 +278,7 @@ void xCheckableHeaderView::mousePressEvent(QMouseEvent *event) {
     QHeaderView::mousePressEvent(event);
 }
 
-QRect xCheckableHeaderView::checkBoxRect(const QRect &sourceRect) const {
+QRect xCheckableHeaderView::checkBoxRect(const QRect& sourceRect) const {
     // 计算复选框的矩形区域，使其在表头节内垂直居中，并靠左显示
     QStyleOptionButton opt;
     QRect cbRect = style()->subElementRect(QStyle::SE_CheckBoxIndicator, &opt);

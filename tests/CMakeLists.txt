@@ -145,6 +145,31 @@ if(MSVC)
 endif()
 add_test(NAME column_width COMMAND test_column_width)
 
+# 表头绘制：窄列保留左侧前缀并右侧省略、布尔列复选框避让、垂直表头复选框与图标宽度扣减。
+add_executable(test_table_header
+    test_table_header.cpp
+    ${LIBQTEXT_TABLE_SOURCES}
+)
+target_compile_definitions(test_table_header PRIVATE USE_GTEST_MAIN)
+target_include_directories(test_table_header
+    PRIVATE
+        "${LIBQTEXT_DIR}"
+        "${CXXPROJ_ROOT}/include"
+)
+target_link_libraries(test_table_header
+    PRIVATE
+        GTest::gtest
+        GTest::gtest_main
+        Qt6::Widgets
+        Qt6::Test
+        "${LIBQTEXT_ZCE_LIBRARY}"
+        ${LIBQTEXT_ZCE_DEPS}
+)
+if(MSVC)
+    target_compile_options(test_table_header PRIVATE /utf-8 /wd4996)
+endif()
+add_test(NAME table_header COMMAND test_table_header)
+
 # 浮点显示：三档模式的精度口径、科学计数法格式串、UI 状态往返。
 add_executable(test_number_display
     test_number_display.cpp
