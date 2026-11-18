@@ -625,6 +625,38 @@ TEST_F(TableHeader, ExplicitTextElideModeIsRespectedOnHorizontalHeader) {
         countSectionDiffInBand(elideLeftImg, sec0Left, elideLeftImg, sec1Left, 34, 51, y0, y1), 0);
     EXPECT_GT(
         countSectionDiffInBand(elideLeftImg, sec1Left, elideLeftImg, sec2Left, 34, 51, y0, y1), 10);
+
+    // 显式设为 ElideMiddle：保留首尾、省略中段。按 SE_HeaderLabel 口径算出期望的中段省略串，再把
+    // 模型文本直接设为该串（已放得下，不再省略）渲染基准图，与自动省略结果逐像素比对；未省略
+    // （居中两头裁剪）或误按 ElideRight 左对齐省略都会产生像素差异。
+    // QStyleOptionHeaderV2::textElideMode 是 2 位枚举位域，MSVC 下 ElideMiddle 会读回 -2，
+    // 这里同时守住 paintSection 必须从 textElideMode() 读取省略模式。
+    header->setTextElideMode(Qt::ElideMiddle);
+    QCoreApplication::processEvents();
+    const QImage elideMiddleImg = renderWidget(header);
+
+    const QString middleFull = model.headerData(1, Qt::Horizontal).toString();
+    QStyleOptionHeaderV2 middleOpt;
+    middleOpt.initFrom(header);
+    middleOpt.state |= QStyle::State_Horizontal | QStyle::State_Enabled | QStyle::State_Raised;
+    middleOpt.section = 1;
+    middleOpt.orientation = Qt::Horizontal;
+    middleOpt.rect = QRect(sec1Left, 0, header->sectionSize(1), header->height());
+    const QRect middleLabelRect =
+        header->style()->subElementRect(QStyle::SE_HeaderLabel, &middleOpt, header);
+    ASSERT_TRUE(middleLabelRect.isValid());
+    const QString middleExpected = header->fontMetrics().elidedText(
+        middleFull, Qt::ElideMiddle, middleLabelRect.width());
+    ASSERT_NE(middleExpected, middleFull);
+    ASSERT_TRUE(middleExpected.startsWith(middleFull.left(1)));
+    ASSERT_TRUE(middleExpected.endsWith(middleFull.right(1)));
+
+    model.setHeaderData(1, Qt::Horizontal, middleExpected, Qt::DisplayRole);
+    QCoreApplication::processEvents();
+    const QImage middleRefImg = renderWidget(header);
+    EXPECT_EQ(countSectionDiffInBand(elideMiddleImg, sec1Left, middleRefImg, sec1Left, 0,
+                                     header->sectionSize(1) - 1, 0, header->height() - 1, 0),
+              0);
 }
 
 }  // namespace

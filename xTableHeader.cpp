@@ -181,9 +181,11 @@ void xCheckableHeaderView::paintSection(QPainter* painter, const QRect& rect,
     initStyleOptionForIndex(&headerOpt, logicalIndex);
     // 与 QHeaderView::paintSection 保持一致：在 initStyleOptionForIndex 之后设置节矩形。
     headerOpt.rect = rect;
-    // 先取出调用方配置的省略模式，再将传给样式的字段置为 ElideNone，统一由本函数按行省略，
-    // 防止 CE_HeaderLabel（含布尔列宽裕的 else 分支）把多行表头按整串单行总长误截断。
-    const Qt::TextElideMode elideMode = headerOpt.textElideMode;
+    // 省略模式直接取视图属性 textElideMode()，不回读 headerOpt.textElideMode：后者是
+    // QStyleOptionHeaderV2 里 2 位的枚举位域，MSVC 把它当有符号数，ElideMiddle / ElideNone
+    // 会读回 -2 / -1。随后把传给样式的字段置为 ElideNone，统一由本函数按行省略，防止
+    // CE_HeaderLabel（含布尔列宽裕的 else 分支）把多行表头按整串单行总长误截断。
+    const Qt::TextElideMode elideMode = textElideMode();
     headerOpt.textElideMode = Qt::ElideNone;
 
     const QBrush nBrushButton = headerOpt.palette.brush(QPalette::Button);
