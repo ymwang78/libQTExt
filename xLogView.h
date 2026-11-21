@@ -44,13 +44,14 @@ struct xLogItem {
     xLogLevel level;
     QTime time;
     QString text;
+    QString project;  // 来源项目（日志首行的「[项目名] 」前缀），空串 = 不属于任何项目
 };
 
 // --- 1. 自定义数据模型 ---
 class xLogModel : public QAbstractListModel {
     Q_OBJECT
   public:
-    enum LogRoles { LevelRole = Qt::UserRole + 1, TimeRole };
+    enum LogRoles { LevelRole = Qt::UserRole + 1, TimeRole, ProjectRole };
 
     explicit xLogModel(int maxLines, QObject* parent = nullptr);
 
@@ -80,6 +81,8 @@ class xLogFilterProxy : public QSortFilterProxyModel {
 
     void setMinLevel(int level);
     void setSearchText(const QString& text);
+    // 只显示该项目的日志；空串 = 不按项目过滤
+    void setProject(const QString& project);
 
   protected:
     // 决定某一行是否显示的核心函数
@@ -88,6 +91,7 @@ class xLogFilterProxy : public QSortFilterProxyModel {
   private:
     int m_minLevel = 0;
     QString m_searchText;
+    QString m_project;
 };
 
 class xLogView : public QWidget {
@@ -111,6 +115,20 @@ class xLogView : public QWidget {
     void selectAllLogs();
     QListView* listView() const { return m_listView; }
 
+    // 按项目过滤：开启后标题栏出现项目下拉框（默认关闭，不开启时界面与行为都不变）。
+    // 日志首行以「[项目名] 」开头即归到该项目，同一次 appendLog 的后续行跟随首行；
+    // 下拉框在日志里出现新项目时自动增补，首项「全部项目」不过滤。
+    void setProjectFilterEnabled(bool enabled);
+    bool isProjectFilterEnabled() const { return m_projectFilterEnabled; }
+    // 下拉框里的项目名（不含「全部项目」），按字母序、不分大小写
+    QStringList projects() const;
+    // 当前选中的项目；空串 = 全部项目
+    QString currentProject() const;
+    // 以编程方式选中项目（不在列表里就先加进去）；空串 = 全部项目
+    void setCurrentProject(const QString& project);
+    // 取一行日志的项目前缀「[项目名] 」里的项目名，没有前缀时返回空串
+    static QString projectTagOf(const QString& line);
+
   signals:
     // 用户在界面上修改等级过滤门限时发出（编程调用 setLevel 不触发）
     void logLevelChanged(int level);
@@ -118,6 +136,7 @@ class xLogView : public QWidget {
   private slots:
     void onUpdateTimer();  // 定时器槽函数
     void onLevelFilterChanged();  // 用户切换等级下拉框
+    void onProjectFilterChanged();  // 用户切换项目下拉框
     void applyFilter();
     void onClearLog();
     void setAutoScroll(bool enabled);
@@ -132,10 +151,16 @@ class xLogView : public QWidget {
     void setupUI();
     void setupTitleBar();
     void retranslateUi();
+    // 把项目加进下拉框（已有则不动），保持字母序和当前选中项
+    void addProject(const QString& project);
+    // 清空日志时把下拉框收回到「全部项目」+ 当前选中的项目
+    void resetProjectList();
 
     int m_maxLines;
     // UI 组件
     QFrame* m_titleBar;
+    QFrame* m_projectSeparator;
+    QComboBox* m_projectFilter;
     QComboBox* m_levelFilter;
     QLineEdit* m_searchBox;
     QCheckBox* m_autoScroll;
@@ -154,4 +179,6 @@ class xLogView : public QWidget {
 
     // 为 true 时抑制 logLevelChanged（区分 setLevel 的编程调用与用户操作）
     bool m_suppressLevelSignal = false;
+
+    bool m_projectFilterEnabled = false;
 };
