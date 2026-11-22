@@ -67,6 +67,8 @@ QVariant xLogModel::data(const QModelIndex& index, int role) const {
             return item.level;
         case TimeRole:
             return item.time;
+        case ProjectRole:
+            return item.project;
     }
 
     return QVariant();
@@ -215,6 +217,20 @@ void xLogFilterProxy::setSearchText(const QString& text) {
 #endif
 }
 
+void xLogFilterProxy::setProject(const QString& project) {
+    if (m_project == project) {
+        return;
+    }
+    m_project = project;
+
+#if QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)
+    beginFilterChange();
+    endFilterChange();
+#else
+    invalidateFilter();
+#endif
+}
+
 bool xLogFilterProxy::filterAcceptsRow(int sourceRow, const QModelIndex& sourceParent) const {
     // 获取源模型的数据
     QModelIndex index = sourceModel()->index(sourceRow, 0, sourceParent);
@@ -223,7 +239,13 @@ bool xLogFilterProxy::filterAcceptsRow(int sourceRow, const QModelIndex& sourceP
     int level = sourceModel()->data(index, xLogModel::LevelRole).toInt();
     if (level < m_minLevel) return false;
 
-    // 2. 检查搜索文本 (如果为空则通过)
+    // 2. 检查项目（未选项目时全部通过；选了项目时不带项目前缀的日志也隐藏）
+    if (!m_project.isEmpty() &&
+        sourceModel()->data(index, xLogModel::ProjectRole).toString() != m_project) {
+        return false;
+    }
+
+    // 3. 检查搜索文本 (如果为空则通过)
     if (m_searchText.isEmpty()) return true;
 
     QString text = sourceModel()->data(index, Qt::DisplayRole).toString().toLower();
@@ -235,7 +257,12 @@ bool xLogFilterProxy::filterAcceptsRow(int sourceRow, const QModelIndex& sourceP
 // ==========================================
 
 xLogView::xLogView(int maxLines, QWidget* parent)
-    : QWidget(parent), m_maxLines(maxLines), m_model(nullptr), m_proxyModel(nullptr) {
+    : QWidget(parent),
+      m_maxLines(maxLines),
+      m_projectSeparator(nullptr),
+      m_projectFilter(nullptr),
+      m_model(nullptr),
+      m_proxyModel(nullptr) {
     setupUI();
 
     m_updateTimer = new QTimer(this);
@@ -308,6 +335,8 @@ void xLogView::setupUI() {
     mainLayout->addWidget(m_listView);
 
     // 连接信号
+    connect(m_projectFilter, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+            &xLogView::onProjectFilterChanged);
     connect(m_levelFilter, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
             &xLogView::onLevelFilterChanged);
     connect(m_searchBox, &QLineEdit::textChanged, this, &xLogView::applyFilter);
@@ -325,6 +354,10 @@ void xLogView::setupUI() {
 }
 
 void xLogView::retranslateUi() {
+    if (m_projectFilter && m_projectFilter->count() > 0) {
+        m_projectFilter->setItemText(0, tr("All Projects"));
+        m_projectFilter->setToolTip(tr("Filter logs by project"));
+    }
     if (m_levelFilter) {
         const QSignalBlocker blocker(m_levelFilter);
         const int currentIndex = m_levelFilter->currentIndex();
@@ -352,6 +385,23 @@ void xLogView::setupTitleBar() {
     titleBarLayout->setSpacing(6);
 
     titleBarLayout->addStretch();
+
+    // 项目下拉框：setProjectFilterEnabled(true) 之前连同左边的分隔线一起隐藏
+    m_projectSeparator = new QFrame(this);
+    m_projectSeparator->setFrameShape(QFrame::VLine);
+    m_projectSeparator->setFrameShadow(QFrame::Sunken);
+    m_projectSeparator->setVisible(false);
+    titleBarLayout->addWidget(m_projectSeparator);
+
+    m_projectFilter = new QComboBox(m_titleBar);
+    m_projectFilter->addItem(tr("All Projects"), QString());
+    m_projectFilter->setToolTip(tr("Filter logs by project"));
+    m_projectFilter->setSizeAdjustPolicy(QComboBox::AdjustToContents);
+    m_projectFilter->setMaximumWidth(200);
+    m_projectFilter->view()->setTextElideMode(Qt::ElideNone);
+    m_projectFilter->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
+    m_projectFilter->setVisible(false);
+    titleBarLayout->addWidget(m_projectFilter);
 
     auto* vline = new QFrame(this);
     vline->setFrameShape(QFrame::VLine);
@@ -417,14 +467,22 @@ void xLogView::appendLog(xLogLevel level, const QString& logText) {
     QList<xLogItem> items;
     items.reserve(lines.size());
     const QTime now = QTime::currentTime();
+    // 项目前缀只写在首行，多行日志的后续行（堆栈、表格等）跟随首行归到同一项目
+    QString project;
+    bool projectResolved = false;
     for (const QString& line : lines) {
         if (line.isEmpty()) {
             continue;
+        }
+        if (!projectResolved) {
+            project = projectTagOf(line);
+            projectResolved = true;
         }
         xLogItem item;
         item.level = level;
         item.text = line;
         item.time = now;
+        item.project = project;
         items.append(std::move(item));
     }
     if (items.isEmpty()) {
@@ -450,6 +508,15 @@ void xLogView::onUpdateTimer() {
         m_pendingLogs.clear();
     }
 
+    // 新出现的项目补进下拉框（下拉框只能在主线程改，所以在这里而不是 appendLog 里做）
+    QString lastProject;
+    for (const xLogItem& item : batch) {
+        if (!item.project.isEmpty() && item.project != lastProject) {
+            addProject(item.project);
+            lastProject = item.project;
+        }
+    }
+
     // 批量添加到 Model（此时运行在主线程，可以安全操作 Model）
     m_model->appendLogs(batch);
 
@@ -463,7 +530,92 @@ void xLogView::applyFilter() {
     if (!m_proxyModel) return;
     int levelIdx = m_levelFilter->currentData().toInt();
     m_proxyModel->setMinLevel(levelIdx);
+    m_proxyModel->setProject(m_projectFilterEnabled ? currentProject() : QString());
     m_proxyModel->setSearchText(m_searchBox->text());
+}
+
+void xLogView::onProjectFilterChanged() {
+    applyFilter();
+    // 换了项目，列表内容整个变了：跟随模式下直接看该项目最新的日志
+    if (m_autoScrollEnabled && m_listView) {
+        m_listView->scrollToBottom();
+    }
+}
+
+void xLogView::setProjectFilterEnabled(bool enabled) {
+    if (m_projectFilterEnabled == enabled) return;
+    m_projectFilterEnabled = enabled;
+    if (m_projectSeparator) m_projectSeparator->setVisible(enabled);
+    if (m_projectFilter) m_projectFilter->setVisible(enabled);
+    applyFilter();
+}
+
+QStringList xLogView::projects() const {
+    QStringList names;
+    if (!m_projectFilter) return names;
+    for (int i = 1; i < m_projectFilter->count(); ++i) {
+        names.append(m_projectFilter->itemData(i).toString());
+    }
+    return names;
+}
+
+QString xLogView::currentProject() const {
+    if (!m_projectFilter) return QString();
+    return m_projectFilter->currentData().toString();
+}
+
+void xLogView::setCurrentProject(const QString& project) {
+    if (!m_projectFilter) return;
+    if (project.isEmpty()) {
+        m_projectFilter->setCurrentIndex(0);
+        return;
+    }
+    addProject(project);
+    const int index = m_projectFilter->findData(project);
+    if (index >= 0) m_projectFilter->setCurrentIndex(index);
+}
+
+QString xLogView::projectTagOf(const QString& line) {
+    // 只认行首的「[名字] 正文」或整行「[名字]」：名字不空、右括号后紧跟空格或行尾、名字限长，
+    // 免得把正文里恰好以方括号开头的长句当成项目。
+    constexpr int kMaxProjectTagLength = 128;
+    if (!line.startsWith(QLatin1Char('['))) return QString();
+    const int close = line.indexOf(QLatin1Char(']'), 1);
+    if (close < 0 || close > kMaxProjectTagLength + 1) return QString();
+    if (close + 1 < line.size() && line.at(close + 1) != QLatin1Char(' ')) return QString();
+    return line.mid(1, close - 1).trimmed();
+}
+
+void xLogView::addProject(const QString& project) {
+    if (!m_projectFilter || project.isEmpty()) return;
+    if (m_projectFilter->findData(project) >= 0) return;
+
+    int insertAt = m_projectFilter->count();
+    for (int i = 1; i < m_projectFilter->count(); ++i) {
+        if (QString::compare(project, m_projectFilter->itemData(i).toString(),
+                             Qt::CaseInsensitive) < 0) {
+            insertAt = i;
+            break;
+        }
+    }
+    // 插在当前项之前会挪动 currentIndex 并发信号，但选中的项目没变，不必重跑过滤
+    const QSignalBlocker blocker(m_projectFilter);
+    m_projectFilter->insertItem(insertAt, project, project);
+    m_projectFilter->setItemData(insertAt, project, Qt::ToolTipRole);
+}
+
+void xLogView::resetProjectList() {
+    if (!m_projectFilter) return;
+    // 已关闭的项目不再留在下拉框里；正在看的那个项目保留，免得清空后过滤被悄悄换掉
+    const QString current = currentProject();
+    const QSignalBlocker blocker(m_projectFilter);
+    while (m_projectFilter->count() > 1) {
+        m_projectFilter->removeItem(m_projectFilter->count() - 1);
+    }
+    if (!current.isEmpty()) {
+        addProject(current);
+        m_projectFilter->setCurrentIndex(1);
+    }
 }
 
 void xLogView::onLevelFilterChanged() {
@@ -499,6 +651,7 @@ void xLogView::setLevel(int level) {
 
 void xLogView::onClearLog() {
     if (m_model) m_model->clear();
+    resetProjectList();
 }
 
 QString xLogView::selectedLogsText() const {
@@ -587,9 +740,7 @@ void xLogView::onContextMenuRequested(const QPoint& pos) {
     menu.exec(m_listView->viewport()->mapToGlobal(pos));
 }
 
-void xLogView::clear() {
-    if (m_model) m_model->clear();
-}
+void xLogView::clear() { onClearLog(); }
 
 void xLogView::setAutoScroll(bool enabled) {
     m_autoScrollEnabled = enabled;
