@@ -23,6 +23,7 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QScrollBar>
+#include <QSignalBlocker>
 #include <QStandardItemModel>
 #include <QTest>
 
@@ -915,6 +916,112 @@ TEST_F(ColumnWidth, RestoreUiStateFromVersionOneLeavesProportionalColumnsAlone) 
     // v1 的状态里没有这个字段，和 stretchLastSection 一样：不碰当前模式。
     EXPECT_TRUE(view_->isProportionalColumns());
     EXPECT_EQ(totalColumnWidth(), viewportWidth());
+}
+
+// --- 8. 冻结顶行视图（frozen_row_view_）列宽、隐藏列与视觉列顺序同步 (#38) ------------
+
+QTableView* findFrozenRowView(const xTableView& table) {
+    const QList<QTableView*> children =
+        table.findChildren<QTableView*>(QString(), Qt::FindDirectChildrenOnly);
+    for (QTableView* child : children) {
+        // 冻结顶行视图隐藏了水平表头与垂直表头，冻结左列视图则保留水平表头可见。
+        if (child && child->horizontalHeader()->isHidden() && child->verticalHeader()->isHidden()) {
+            return child;
+        }
+    }
+    return nullptr;
+}
+
+void expectFrozenRowColumnsMatchMainTable(const xTableView& mainTable,
+                                          const QTableView* frozenRowView) {
+    ASSERT_NE(frozenRowView, nullptr);
+    const QHeaderView* mainHeader = mainTable.horizontalHeader();
+    const QHeaderView* frozenHeader = frozenRowView->horizontalHeader();
+    ASSERT_NE(mainHeader, nullptr);
+    ASSERT_NE(frozenHeader, nullptr);
+    ASSERT_EQ(frozenHeader->count(), mainHeader->count());
+
+    for (int col = 0; col < mainHeader->count(); ++col) {
+        EXPECT_EQ(frozenRowView->isColumnHidden(col), mainTable.isColumnHidden(col))
+            << "hidden mismatch at col " << col;
+        EXPECT_EQ(frozenRowView->columnWidth(col), mainTable.columnWidth(col))
+            << "width mismatch at col " << col;
+        EXPECT_EQ(frozenHeader->visualIndex(col), mainHeader->visualIndex(col))
+            << "visualIndex mismatch at col " << col;
+    }
+}
+
+TEST_F(ColumnWidth, FrozenTopRowSyncsExistingAndIncrementalColumnLayoutChanges) {
+    setUpView(6, 4, 520, 320);
+
+    // 1. 在调用 freezeTopRows 之前先设好非默认列宽、隐藏列与列重排。
+    view_->setColumnWidth(0, 140);
+    view_->setColumnWidth(1, 85);
+    view_->setColumnWidth(2, 190);
+    view_->setColumnWidth(3, 115);
+    view_->setColumnHidden(1, true);
+    header()->moveSection(header()->visualIndex(2), 0);
+
+    view_->freezeTopRows(1);
+    QCoreApplication::processEvents();
+
+    QTableView* frozenRowView = findFrozenRowView(*view_);
+    ASSERT_NE(frozenRowView, nullptr);
+    expectFrozenRowColumnsMatchMainTable(*view_, frozenRowView);
+
+    // 2. 冻结行已创建后的增量变更：取消隐藏、隐藏另一列、调整列宽、再次移动列。
+    view_->showColumn(1);
+    view_->hideColumn(3);
+    view_->setColumnWidth(0, 165);
+    header()->moveSection(0, 3);
+    QCoreApplication::processEvents();
+
+    expectFrozenRowColumnsMatchMainTable(*view_, frozenRowView);
+}
+
+TEST_F(ColumnWidth, FrozenTopRowSyncsColumnLayoutWhenRestoreUiStateRunsWithHeaderSignalsBlocked) {
+    setUpView(6, 4, 520, 320);
+    view_->setColumnWidth(0, 150);
+    view_->setColumnWidth(1, 95);
+    view_->setColumnWidth(2, 210);
+    view_->setColumnWidth(3, 125);
+    view_->setColumnHidden(1, true);
+    header()->moveSection(header()->visualIndex(3), 0);
+    view_->freezeTopRows(2);
+    QCoreApplication::processEvents();
+
+    const QJsonObject state = view_->saveUiState();
+
+    // 场景 A：目标表已提前启用 freezeTopRows(1)，宿主在屏蔽表头信号下调用 restoreUiState。
+    xTableView targetWithExistingFrozen;
+    QStandardItemModel modelA(6, 4);
+    targetWithExistingFrozen.setSourceModel(&modelA);
+    targetWithExistingFrozen.resize(520, 320);
+    targetWithExistingFrozen.show();
+    ASSERT_TRUE(QTest::qWaitForWindowExposed(&targetWithExistingFrozen));
+    targetWithExistingFrozen.freezeTopRows(1);
+    QCoreApplication::processEvents();
+    {
+        const QSignalBlocker blocker(targetWithExistingFrozen.horizontalHeader());
+        targetWithExistingFrozen.restoreUiState(state);
+    }
+    QCoreApplication::processEvents();
+    expectFrozenRowColumnsMatchMainTable(targetWithExistingFrozen,
+                                         findFrozenRowView(targetWithExistingFrozen));
+
+    // 场景 B：目标表尚未启用冻结顶行，宿主在屏蔽表头信号下通过 restoreUiState 一次性恢复列状态与冻结顶行。
+    xTableView targetFromScratch;
+    QStandardItemModel modelB(6, 4);
+    targetFromScratch.setSourceModel(&modelB);
+    targetFromScratch.resize(520, 320);
+    targetFromScratch.show();
+    ASSERT_TRUE(QTest::qWaitForWindowExposed(&targetFromScratch));
+    {
+        const QSignalBlocker blocker(targetFromScratch.horizontalHeader());
+        targetFromScratch.restoreUiState(state);
+    }
+    QCoreApplication::processEvents();
+    expectFrozenRowColumnsMatchMainTable(targetFromScratch, findFrozenRowView(targetFromScratch));
 }
 
 }  // namespace

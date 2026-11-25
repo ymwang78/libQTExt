@@ -314,6 +314,7 @@ class xTableView : public QTableView {
     void createFrozenColView();
 
     void createFrozenRowView();
+    void syncFrozenRowColumns();
 
     void updateFrozenGeometry();
 

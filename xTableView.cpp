@@ -1439,10 +1439,12 @@ void xTableView::showHeaderMenu(const QPoint &pos) {
     unfreezeAct->setEnabled(freeze_cols_ > 0);
     QAction *ret = menu.exec(horizontalHeader()->viewport()->mapToGlobal(pos));
     if (!ret) return;
-    if (ret == hideAct)
+    if (ret == hideAct) {
         hideColumn(column);
-    else if (ret == showAll) {
+        syncFrozenRowColumns();
+    } else if (ret == showAll) {
         for (int c = 0; c < model()->columnCount(); ++c) showColumn(c);
+        syncFrozenRowColumns();
     } else if (ret == freezeAct) {
         freezeLeftColumns(column + 1);
     } else if (ret == unfreezeAct) {
@@ -1679,9 +1681,20 @@ void xTableView::createFrozenRowView() {
             horizontalScrollBar(), &QAbstractSlider::setValue);
 
     connect(horizontalHeader(), &QHeaderView::sectionResized, frozen_row_view_,
-            [frozenView = frozen_row_view_](int logicalIndex, int, int newSize) {
-                frozenView->setColumnWidth(logicalIndex, newSize);
+            [this](int logicalIndex, int, int newSize) {
+                if (!frozen_row_view_) return;
+                const bool hidden = isColumnHidden(logicalIndex) || newSize <= 0;
+                if (frozen_row_view_->isColumnHidden(logicalIndex) != hidden) {
+                    frozen_row_view_->setColumnHidden(logicalIndex, hidden);
+                }
+                if (!hidden) {
+                    frozen_row_view_->setColumnWidth(logicalIndex, newSize);
+                }
             });
+    connect(horizontalHeader(), &QHeaderView::sectionMoved, frozen_row_view_,
+            [this](int, int, int) { syncFrozenRowColumns(); });
+    connect(horizontalHeader(), &QHeaderView::geometriesChanged, frozen_row_view_,
+            [this]() { syncFrozenRowColumns(); });
     connect(verticalHeader(), &QHeaderView::sectionResized, frozen_row_view_,
             [this, frozenView = frozen_row_view_](int logicalIndex, int, int newSize) {
                 if (logicalIndex < freeze_rows_) {
@@ -1693,7 +1706,41 @@ void xTableView::createFrozenRowView() {
     connect(selectionModel(), &QItemSelectionModel::selectionChanged, frozen_row_view_,
             static_cast<void (QWidget::*)()>(&QTableView::update));
 
+    syncFrozenRowColumns();
     frozen_row_view_->show();
+}
+
+void xTableView::syncFrozenRowColumns() {
+    if (!frozen_row_view_ || !horizontalHeader()) return;
+
+    QHeaderView *mainHeader = horizontalHeader();
+    QHeaderView *frozenHeader = frozen_row_view_->horizontalHeader();
+    if (!frozenHeader) return;
+
+    frozenHeader->setMinimumSectionSize(mainHeader->minimumSectionSize());
+    frozenHeader->setDefaultSectionSize(mainHeader->defaultSectionSize());
+
+    const int colCount = model() ? model()->columnCount() : mainHeader->count();
+    for (int visualIdx = 0; visualIdx < colCount; ++visualIdx) {
+        const int logicalIdx = mainHeader->logicalIndex(visualIdx);
+        if (logicalIdx < 0) continue;
+        const int frozenVisualIdx = frozenHeader->visualIndex(logicalIdx);
+        if (frozenVisualIdx >= 0 && frozenVisualIdx != visualIdx) {
+            frozenHeader->moveSection(frozenVisualIdx, visualIdx);
+        }
+    }
+
+    for (int c = 0; c < colCount; ++c) {
+        const bool hidden = isColumnHidden(c) || columnWidth(c) <= 0;
+        if (frozen_row_view_->isColumnHidden(c) != hidden) {
+            frozen_row_view_->setColumnHidden(c, hidden);
+        }
+        if (!hidden) {
+            frozen_row_view_->setColumnWidth(c, columnWidth(c));
+        }
+    }
+
+    frozen_row_view_->horizontalScrollBar()->setValue(horizontalScrollBar()->value());
 }
 
 void xTableView::updateFrozenGeometry() {
@@ -1711,6 +1758,7 @@ void xTableView::updateFrozenGeometry() {
         frozen_col_view_->raise();
     }
     if (frozen_row_view_) {
+        syncFrozenRowColumns();
         int h = 0;
         for (int r = 0; r < freeze_rows_; ++r) {
             if (!isRowHidden(r)) {
