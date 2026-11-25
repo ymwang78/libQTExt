@@ -693,6 +693,13 @@ TEST_F(TableHeader, ExplicitTextElideModeIsRespectedOnHorizontalHeader) {
                                      frozenSec1Left, 0, frozenHeader->sectionSize(1) - 1, 0,
                                      frozenHeader->height() - 1, 0),
               0);
+
+    // 冻结列视图已存在时：主表头改为 ElideLeft 后再调整冻结列数，冻结表头同样要跟上。
+    header->setTextElideMode(Qt::ElideLeft);
+    table.freezeLeftColumns(1);
+    QCoreApplication::processEvents();
+    EXPECT_EQ(frozenView->horizontalHeader(), frozenHeader);
+    EXPECT_EQ(frozenHeader->textElideMode(), Qt::ElideLeft);
 }
 
 }  // namespace
