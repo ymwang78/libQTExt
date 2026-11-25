@@ -512,6 +512,7 @@ void xLogView::onUpdateTimer() {
     QString lastProject;
     for (const xLogItem& item : batch) {
         if (!item.project.isEmpty() && item.project != lastProject) {
+            m_projectsWithLogs.insert(item.project);
             addProject(item.project);
             lastProject = item.project;
         }
@@ -550,6 +551,29 @@ void xLogView::setProjectFilterEnabled(bool enabled) {
     applyFilter();
 }
 
+void xLogView::setKnownProjects(const QStringList& projects) {
+    QSet<QString> known(projects.begin(), projects.end());
+    known.remove(QString());
+    if (known == m_knownProjects) return;
+
+    const QString selected = currentProject();
+    {
+        const QSignalBlocker blocker(m_projectFilter);
+        for (const QString& project : m_knownProjects) {
+            if (!known.contains(project) && !m_projectsWithLogs.contains(project)) {
+                const int index = m_projectFilter->findData(project);
+                if (index > 0) m_projectFilter->removeItem(index);
+            }
+        }
+        m_knownProjects = std::move(known);
+        for (const QString& project : m_knownProjects) {
+            addProject(project);
+        }
+        m_projectFilter->setCurrentIndex(std::max(0, m_projectFilter->findData(selected)));
+    }
+    if (currentProject() != selected) applyFilter();
+}
+
 QStringList xLogView::projects() const {
     QStringList names;
     if (!m_projectFilter) return names;
@@ -579,11 +603,26 @@ QString xLogView::projectTagOf(const QString& line) {
     // 只认行首的「[名字] 正文」或整行「[名字]」：名字不空、右括号后紧跟空格或行尾、名字限长，
     // 免得把正文里恰好以方括号开头的长句当成项目。
     constexpr int kMaxProjectTagLength = 128;
-    if (!line.startsWith(QLatin1Char('['))) return QString();
-    const int close = line.indexOf(QLatin1Char(']'), 1);
-    if (close < 0 || close > kMaxProjectTagLength + 1) return QString();
-    if (close + 1 < line.size() && line.at(close + 1) != QLatin1Char(' ')) return QString();
-    return line.mid(1, close - 1).trimmed();
+    const qsizetype open = line.indexOf(QLatin1Char('['));
+    if (open < 0) return {};
+    const qsizetype close = line.indexOf(QLatin1Char(']'), open + 1);
+    if (close < 0 || close - open > kMaxProjectTagLength + 1) return {};
+
+    if (open == 0) {
+        if (close + 1 < line.size() && line.at(close + 1) != QLatin1Char(' ')) return {};
+    } else {
+        // The plugins also send Module[project]: message.
+        const QStringView module = QStringView(line).first(open);
+        if (!module.front().isLetter() ||
+            !std::all_of(module.begin(), module.end(), [](QChar ch) {
+                return ch.isLetterOrNumber() || ch == QLatin1Char('_');
+            }) ||
+            !QStringView(line).sliced(close + 1).startsWith(QStringLiteral(": "))) {
+            return {};
+        }
+    }
+
+    return line.mid(open + 1, close - open - 1).trimmed();
 }
 
 void xLogView::addProject(const QString& project) {
@@ -612,9 +651,13 @@ void xLogView::resetProjectList() {
     while (m_projectFilter->count() > 1) {
         m_projectFilter->removeItem(m_projectFilter->count() - 1);
     }
+    m_projectsWithLogs.clear();
+    for (const QString& project : m_knownProjects) {
+        addProject(project);
+    }
     if (!current.isEmpty()) {
         addProject(current);
-        m_projectFilter->setCurrentIndex(1);
+        m_projectFilter->setCurrentIndex(m_projectFilter->findData(current));
     }
 }
 

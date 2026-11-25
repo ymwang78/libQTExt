@@ -104,6 +104,32 @@ TEST_F(LogViewTest, ProjectTagIsTheLeadingBracketedNameFollowedBySpaceOrEnd) {
               QString(128, QLatin1Char('a')));
 }
 
+TEST_F(LogViewTest, ListsWorkspaceProjectsBeforeTheirFirstLogAndAfterClear) {
+    xLogView logView(100);
+    logView.setProjectFilterEnabled(true);
+    logView.setKnownProjects({QStringLiteral("MySim"), QStringLiteral("ktrace"),
+                              QStringLiteral("MySim")});
+    EXPECT_EQ(logView.projects(), (QStringList{QStringLiteral("ktrace"),
+                                              QStringLiteral("MySim")}));
+    logView.setCurrentProject(QStringLiteral("MySim"));
+    logView.appendLog(ZLOG_WARNI, QStringLiteral("KeelSim[MySim]: Delete source"));
+    logView.appendLog(ZLOG_INFOR, QStringLiteral("KeelTrace[ktrace]: Ready"));
+    logView.appendLog(ZLOG_INFOR, QStringLiteral("Framework ready"));
+    QTest::qWait(150);
+    EXPECT_EQ(visibleTexts(logView), QStringList{QStringLiteral("KeelSim[MySim]: Delete source")});
+
+    logView.setKnownProjects({QStringLiteral("MySim"), QStringLiteral("ksim")});
+    EXPECT_EQ(logView.currentProject(), QStringLiteral("MySim"));
+    EXPECT_TRUE(logView.projects().contains(QStringLiteral("ktrace")));
+    logView.clear();
+    EXPECT_EQ(logView.projects(), (QStringList{QStringLiteral("ksim"),
+                                              QStringLiteral("MySim")}));
+    EXPECT_EQ(logView.currentProject(), QStringLiteral("MySim"));
+    logView.setKnownProjects({QStringLiteral("ksim")});
+    EXPECT_TRUE(logView.currentProject().isEmpty());
+    EXPECT_EQ(logView.projects(), QStringList{QStringLiteral("ksim")});
+}
+
 TEST_F(LogViewTest, ProjectFilterIsHiddenAndInactiveUntilEnabled) {
     xLogView logView(100);
     QComboBox* combo = projectCombo(logView);

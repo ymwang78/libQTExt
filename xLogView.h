@@ -15,6 +15,8 @@
 #include <QSortFilterProxyModel>
 #include <QTimer>
 #include <QMutex>
+#include <QSet>
+#include <QStringList>
 #include <QTime>
 #include <QList>
 #include <QLabel>
@@ -119,6 +121,8 @@ class xLogView : public QWidget {
     // 日志首行以「[项目名] 」开头即归到该项目，同一次 appendLog 的后续行跟随首行；
     // 下拉框在日志里出现新项目时自动增补，首项「全部项目」不过滤。
     void setProjectFilterEnabled(bool enabled);
+    // Register projects that may not have emitted a log yet.
+    void setKnownProjects(const QStringList& projects);
     bool isProjectFilterEnabled() const { return m_projectFilterEnabled; }
     // 下拉框里的项目名（不含「全部项目」），按字母序、不分大小写
     QStringList projects() const;
@@ -181,4 +185,6 @@ class xLogView : public QWidget {
     bool m_suppressLevelSignal = false;
 
     bool m_projectFilterEnabled = false;
+    QSet<QString> m_knownProjects;
+    QSet<QString> m_projectsWithLogs;
 };
