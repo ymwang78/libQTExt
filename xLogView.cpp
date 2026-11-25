@@ -368,6 +368,7 @@ void xLogView::retranslateUi() {
         m_levelFilter->setItemText(4, tr("ERROR+"));
         m_levelFilter->setItemText(5, tr("FATAL ONLY"));
         m_levelFilter->setItemText(6, tr("SILENT"));
+        m_levelFilter->setToolTip(tr("Show logs at or above the selected level"));
         m_levelFilter->setCurrentIndex(currentIndex);
     }
     if (m_searchBox) m_searchBox->setPlaceholderText(tr("Search..."));
@@ -417,8 +418,9 @@ void xLogView::setupTitleBar() {
     m_levelFilter->addItem(tr("FATAL ONLY"), static_cast<int>(ZLOG_FATAL));
     m_levelFilter->addItem(tr("SILENT"), static_cast<int>(ZLOG_NONEL));
     m_levelFilter->setCurrentIndex(2);  // 默认 INFO+
-    m_levelFilter->setMaximumWidth(80);
-    m_levelFilter->view()->setMinimumWidth(100);
+    m_levelFilter->setToolTip(tr("Show logs at or above the selected level"));
+    m_levelFilter->setSizeAdjustPolicy(QComboBox::AdjustToContents);
+    m_levelFilter->view()->setTextElideMode(Qt::ElideNone);
     m_levelFilter->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
     titleBarLayout->addWidget(m_levelFilter);
 

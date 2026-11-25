@@ -1,9 +1,12 @@
 ﻿#include "xLogView.h"
 #include <gtest/gtest.h>
+#include <QAbstractItemView>
 #include <QApplication>
 #include <QClipboard>
 #include <QItemSelectionModel>
 #include <QListView>
+#include <QStyle>
+#include <QStyleOptionComboBox>
 #include <QTest>
 
 namespace {
@@ -84,6 +87,40 @@ QComboBox* projectCombo(xLogView& logView) {
         if (combo->itemData(0).typeId() == QMetaType::QString) return combo;
     }
     return nullptr;
+}
+
+QComboBox* levelCombo(xLogView& logView) {
+    for (QComboBox* combo : logView.findChildren<QComboBox*>()) {
+        if (combo->itemData(0).typeId() == QMetaType::Int) return combo;
+    }
+    return nullptr;
+}
+
+TEST_F(LogViewTest, LevelFilterFitsAllItemTextsWithoutClippingAndHasThresholdTooltip) {
+    xLogView logView(100);
+    logView.resize(480, 200);
+    logView.show();
+    ASSERT_TRUE(QTest::qWaitForWindowExposed(&logView));
+
+    QComboBox* combo = levelCombo(logView);
+    ASSERT_NE(combo, nullptr);
+    EXPECT_EQ(combo->sizeAdjustPolicy(), QComboBox::AdjustToContents);
+    EXPECT_EQ(combo->view()->textElideMode(), Qt::ElideNone);
+    EXPECT_FALSE(combo->toolTip().isEmpty());
+    EXPECT_GE(combo->width(), combo->sizeHint().width());
+
+    QStyleOptionComboBox opt;
+    opt.initFrom(combo);
+    const QRect editField =
+        combo->style()->subControlRect(QStyle::CC_ComboBox, &opt, QStyle::SC_ComboBoxEditField, combo);
+    ASSERT_TRUE(editField.isValid());
+
+    const QFontMetrics fm = combo->fontMetrics();
+    for (int i = 0; i < combo->count(); ++i) {
+        const QString text = combo->itemText(i);
+        EXPECT_LE(fm.horizontalAdvance(text), editField.width())
+            << "Level item clipped at index " << i << ": " << text.toStdString();
+    }
 }
 
 TEST_F(LogViewTest, ProjectTagIsTheLeadingBracketedNameFollowedBySpaceOrEnd) {
