@@ -1608,6 +1608,7 @@ void xTableView::createFrozenColView() {
     auto *frozenHeader = new xCheckableHeaderView(Qt::Horizontal, frozen_col_view_);
     frozen_col_view_->setHorizontalHeader(frozenHeader);
     frozenHeader->setDefaultAlignment(horizontalHeader()->defaultAlignment());
+    frozenHeader->setTextElideMode(horizontalHeader()->textElideMode());
     frozenHeader->setSectionsClickable(horizontalHeader()->sectionsClickable());
     frozenHeader->setSortIndicatorShown(horizontalHeader()->isSortIndicatorShown());
     frozenHeader->setSortIndicator(horizontalHeader()->sortIndicatorSection(),
