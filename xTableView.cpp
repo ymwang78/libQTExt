@@ -1439,10 +1439,12 @@ void xTableView::showHeaderMenu(const QPoint &pos) {
     unfreezeAct->setEnabled(freeze_cols_ > 0);
     QAction *ret = menu.exec(horizontalHeader()->viewport()->mapToGlobal(pos));
     if (!ret) return;
-    if (ret == hideAct)
+    if (ret == hideAct) {
         hideColumn(column);
-    else if (ret == showAll) {
+        syncFrozenRowColumns();
+    } else if (ret == showAll) {
         for (int c = 0; c < model()->columnCount(); ++c) showColumn(c);
+        syncFrozenRowColumns();
     } else if (ret == freezeAct) {
         freezeLeftColumns(column + 1);
     } else if (ret == unfreezeAct) {
@@ -1673,15 +1675,38 @@ void xTableView::createFrozenRowView() {
     frozen_row_view_->setSelectionMode(QAbstractItemView::NoSelection);
     frozen_row_view_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     frozen_row_view_->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    connect(horizontalScrollBar(), &QAbstractSlider::valueChanged,
-            frozen_row_view_->horizontalScrollBar(), &QAbstractSlider::setValue);
-    connect(frozen_row_view_->horizontalScrollBar(), &QAbstractSlider::valueChanged,
-            horizontalScrollBar(), &QAbstractSlider::setValue);
+    // 主表是 ScrollPerPixel，冻结顶行默认 ScrollPerItem：两边滚动值单位不同，像素偏移写进来
+    // 会被按列号范围截断。滚动模式必须一致，滚动值才能直接互相同步。
+    frozen_row_view_->setHorizontalScrollMode(horizontalScrollMode());
+    frozen_row_view_->setVerticalScrollMode(verticalScrollMode());
+    connect(horizontalScrollBar(), &QAbstractSlider::valueChanged, frozen_row_view_,
+            [this](int) { syncFrozenRowScroll(); });
+    // 冻结顶行的滚动范围是延后布局出来的：范围一变就按主表的值重新对齐，
+    // 而不是让截断后的旧值留在那里（随后又经反向连接把主表拉回去）。
+    connect(frozen_row_view_->horizontalScrollBar(), &QAbstractSlider::rangeChanged,
+            frozen_row_view_, [this](int, int) { syncFrozenRowScroll(); });
+    // 反向：在冻结顶行上横向滚轮时带动主表；本类自己同步期间产生的值不写回。
+    connect(frozen_row_view_->horizontalScrollBar(), &QAbstractSlider::valueChanged, this,
+            [this](int value) {
+                if (syncing_frozen_row_scroll_) return;
+                horizontalScrollBar()->setValue(value);
+            });
 
     connect(horizontalHeader(), &QHeaderView::sectionResized, frozen_row_view_,
-            [frozenView = frozen_row_view_](int logicalIndex, int, int newSize) {
-                frozenView->setColumnWidth(logicalIndex, newSize);
+            [this](int logicalIndex, int, int newSize) {
+                if (!frozen_row_view_) return;
+                const bool hidden = isColumnHidden(logicalIndex) || newSize <= 0;
+                if (frozen_row_view_->isColumnHidden(logicalIndex) != hidden) {
+                    frozen_row_view_->setColumnHidden(logicalIndex, hidden);
+                }
+                if (!hidden) {
+                    frozen_row_view_->setColumnWidth(logicalIndex, newSize);
+                }
             });
+    connect(horizontalHeader(), &QHeaderView::sectionMoved, frozen_row_view_,
+            [this](int, int, int) { syncFrozenRowColumns(); });
+    connect(horizontalHeader(), &QHeaderView::geometriesChanged, frozen_row_view_,
+            [this]() { syncFrozenRowColumns(); });
     connect(verticalHeader(), &QHeaderView::sectionResized, frozen_row_view_,
             [this, frozenView = frozen_row_view_](int logicalIndex, int, int newSize) {
                 if (logicalIndex < freeze_rows_) {
@@ -1693,7 +1718,49 @@ void xTableView::createFrozenRowView() {
     connect(selectionModel(), &QItemSelectionModel::selectionChanged, frozen_row_view_,
             static_cast<void (QWidget::*)()>(&QTableView::update));
 
+    syncFrozenRowColumns();
     frozen_row_view_->show();
+}
+
+void xTableView::syncFrozenRowColumns() {
+    if (!frozen_row_view_ || !horizontalHeader()) return;
+
+    QHeaderView *mainHeader = horizontalHeader();
+    QHeaderView *frozenHeader = frozen_row_view_->horizontalHeader();
+    if (!frozenHeader) return;
+
+    frozenHeader->setMinimumSectionSize(mainHeader->minimumSectionSize());
+    frozenHeader->setDefaultSectionSize(mainHeader->defaultSectionSize());
+
+    // 两个表头挂的是同一份模型（冻结行只过滤行），列数应当一致；取较小值防止模型
+    // 变更信号的过渡期间按另一侧的列数越界。
+    const int colCount = qMin(mainHeader->count(), frozenHeader->count());
+    for (int visualIdx = 0; visualIdx < colCount; ++visualIdx) {
+        const int logicalIdx = mainHeader->logicalIndex(visualIdx);
+        if (logicalIdx < 0) continue;
+        const int frozenVisualIdx = frozenHeader->visualIndex(logicalIdx);
+        if (frozenVisualIdx >= 0 && frozenVisualIdx != visualIdx) {
+            frozenHeader->moveSection(frozenVisualIdx, visualIdx);
+        }
+    }
+
+    for (int c = 0; c < colCount; ++c) {
+        const bool hidden = isColumnHidden(c) || columnWidth(c) <= 0;
+        if (frozen_row_view_->isColumnHidden(c) != hidden) {
+            frozen_row_view_->setColumnHidden(c, hidden);
+        }
+        if (!hidden) {
+            frozen_row_view_->setColumnWidth(c, columnWidth(c));
+        }
+    }
+}
+
+void xTableView::syncFrozenRowScroll() {
+    if (!frozen_row_view_) return;
+    // 不能用 QSignalBlocker 挡冻结行滚动条：QAbstractScrollArea 靠它的 valueChanged
+    // 驱动 scrollContentsBy，挡掉之后冻结行内容不会跟着滚。这里只挡写回主表那条路。
+    const QScopedValueRollback<bool> guard(syncing_frozen_row_scroll_, true);
+    frozen_row_view_->horizontalScrollBar()->setValue(horizontalScrollBar()->value());
 }
 
 void xTableView::updateFrozenGeometry() {
@@ -1711,6 +1778,7 @@ void xTableView::updateFrozenGeometry() {
         frozen_col_view_->raise();
     }
     if (frozen_row_view_) {
+        syncFrozenRowColumns();
         int h = 0;
         for (int r = 0; r < freeze_rows_; ++r) {
             if (!isRowHidden(r)) {
@@ -1721,6 +1789,8 @@ void xTableView::updateFrozenGeometry() {
         frozen_row_view_->setGeometry(verticalHeader()->width() + frameWidth(),
                                       frameWidth() + horizontalHeader()->height(),
                                       viewport()->width(), h);
+        // 视口尺寸更新之后再对齐滚动值，否则会按旧的滚动范围被截断。
+        syncFrozenRowScroll();
     }
 }
 
