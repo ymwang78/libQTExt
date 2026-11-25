@@ -1024,6 +1024,35 @@ TEST_F(ColumnWidth, FrozenTopRowSyncsColumnLayoutWhenRestoreUiStateRunsWithHeade
     expectFrozenRowColumnsMatchMainTable(targetFromScratch, findFrozenRowView(targetFromScratch));
 }
 
+TEST_F(ColumnWidth, FrozenTopRowKeepsPixelScrollOffsetWhenFrozenAfterHorizontalScroll) {
+    setUpView(6, 8, 320, 240);
+    for (int col = 0; col < 8; ++col) view_->setColumnWidth(col, 150);
+    QCoreApplication::processEvents();
+
+    // 主表是 ScrollPerPixel：先横向滚到一个不落在列边界上的像素偏移，再冻结顶行。
+    QScrollBar* mainBar = view_->horizontalScrollBar();
+    ASSERT_GT(mainBar->maximum(), 437);
+    mainBar->setValue(437);
+    QCoreApplication::processEvents();
+    ASSERT_EQ(mainBar->value(), 437);
+
+    view_->freezeTopRows(1);
+    QCoreApplication::processEvents();
+
+    QTableView* frozenRowView = findFrozenRowView(*view_);
+    ASSERT_NE(frozenRowView, nullptr);
+    EXPECT_EQ(frozenRowView->horizontalScrollMode(), view_->horizontalScrollMode());
+    // 冻结顶行不能把主表滚动位置拉回去，且两边按同一像素偏移对齐。
+    EXPECT_EQ(mainBar->value(), 437);
+    EXPECT_EQ(frozenRowView->horizontalScrollBar()->value(), mainBar->value());
+
+    // 冻结后的增量滚动：两边仍保持同一像素偏移。
+    mainBar->setValue(611);
+    QCoreApplication::processEvents();
+    EXPECT_EQ(mainBar->value(), 611);
+    EXPECT_EQ(frozenRowView->horizontalScrollBar()->value(), 611);
+}
+
 }  // namespace
 
 #ifndef USE_GTEST_MAIN

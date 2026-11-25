@@ -165,6 +165,9 @@ class xTableView : public QTableView {
     xTableViewSortFilter *proxy_ = nullptr;
     QTableView *frozen_row_view_ = nullptr;
     xTableViewTopRowsFilter *frozen_row_filter_ = nullptr;
+    // 正在把主表水平滚动值写进冻结顶行时置位：冻结行滚动条被自身范围截断后的值
+    // 不能再经反向连接写回主表，否则主表会被拉回左侧。
+    bool syncing_frozen_row_scroll_ = false;
     QTableView *frozen_col_view_ = nullptr;
     xTableViewTopRowsFilter *frozen_col_filter_ = nullptr;
     int freeze_cols_ = 0;
@@ -315,6 +318,7 @@ class xTableView : public QTableView {
 
     void createFrozenRowView();
     void syncFrozenRowColumns();
+    void syncFrozenRowScroll();
 
     void updateFrozenGeometry();
 

@@ -1675,10 +1675,22 @@ void xTableView::createFrozenRowView() {
     frozen_row_view_->setSelectionMode(QAbstractItemView::NoSelection);
     frozen_row_view_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     frozen_row_view_->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    connect(horizontalScrollBar(), &QAbstractSlider::valueChanged,
-            frozen_row_view_->horizontalScrollBar(), &QAbstractSlider::setValue);
-    connect(frozen_row_view_->horizontalScrollBar(), &QAbstractSlider::valueChanged,
-            horizontalScrollBar(), &QAbstractSlider::setValue);
+    // 主表是 ScrollPerPixel，冻结顶行默认 ScrollPerItem：两边滚动值单位不同，像素偏移写进来
+    // 会被按列号范围截断。滚动模式必须一致，滚动值才能直接互相同步。
+    frozen_row_view_->setHorizontalScrollMode(horizontalScrollMode());
+    frozen_row_view_->setVerticalScrollMode(verticalScrollMode());
+    connect(horizontalScrollBar(), &QAbstractSlider::valueChanged, frozen_row_view_,
+            [this](int) { syncFrozenRowScroll(); });
+    // 冻结顶行的滚动范围是延后布局出来的：范围一变就按主表的值重新对齐，
+    // 而不是让截断后的旧值留在那里（随后又经反向连接把主表拉回去）。
+    connect(frozen_row_view_->horizontalScrollBar(), &QAbstractSlider::rangeChanged,
+            frozen_row_view_, [this](int, int) { syncFrozenRowScroll(); });
+    // 反向：在冻结顶行上横向滚轮时带动主表；本类自己同步期间产生的值不写回。
+    connect(frozen_row_view_->horizontalScrollBar(), &QAbstractSlider::valueChanged, this,
+            [this](int value) {
+                if (syncing_frozen_row_scroll_) return;
+                horizontalScrollBar()->setValue(value);
+            });
 
     connect(horizontalHeader(), &QHeaderView::sectionResized, frozen_row_view_,
             [this](int logicalIndex, int, int newSize) {
@@ -1720,7 +1732,9 @@ void xTableView::syncFrozenRowColumns() {
     frozenHeader->setMinimumSectionSize(mainHeader->minimumSectionSize());
     frozenHeader->setDefaultSectionSize(mainHeader->defaultSectionSize());
 
-    const int colCount = model() ? model()->columnCount() : mainHeader->count();
+    // 两个表头挂的是同一份模型（冻结行只过滤行），列数应当一致；取较小值防止模型
+    // 变更信号的过渡期间按另一侧的列数越界。
+    const int colCount = qMin(mainHeader->count(), frozenHeader->count());
     for (int visualIdx = 0; visualIdx < colCount; ++visualIdx) {
         const int logicalIdx = mainHeader->logicalIndex(visualIdx);
         if (logicalIdx < 0) continue;
@@ -1739,7 +1753,13 @@ void xTableView::syncFrozenRowColumns() {
             frozen_row_view_->setColumnWidth(c, columnWidth(c));
         }
     }
+}
 
+void xTableView::syncFrozenRowScroll() {
+    if (!frozen_row_view_) return;
+    // 不能用 QSignalBlocker 挡冻结行滚动条：QAbstractScrollArea 靠它的 valueChanged
+    // 驱动 scrollContentsBy，挡掉之后冻结行内容不会跟着滚。这里只挡写回主表那条路。
+    const QScopedValueRollback<bool> guard(syncing_frozen_row_scroll_, true);
     frozen_row_view_->horizontalScrollBar()->setValue(horizontalScrollBar()->value());
 }
 
@@ -1769,6 +1789,8 @@ void xTableView::updateFrozenGeometry() {
         frozen_row_view_->setGeometry(verticalHeader()->width() + frameWidth(),
                                       frameWidth() + horizontalHeader()->height(),
                                       viewport()->width(), h);
+        // 视口尺寸更新之后再对齐滚动值，否则会按旧的滚动范围被截断。
+        syncFrozenRowScroll();
     }
 }
 
