@@ -1574,6 +1574,11 @@ void xTableView::syncFrozen() {
         frozen_col_view_ = nullptr;
     }
     if (frozen_col_view_) {
+        // 冻结列视图只在首次冻结时创建；之后主表头改了省略模式再调整冻结列数，
+        // 这里同样要跟上，否则冻结表头会停留在创建时的省略模式。
+        if (QHeaderView *frozenHeader = frozen_col_view_->horizontalHeader()) {
+            frozenHeader->setTextElideMode(horizontalHeader()->textElideMode());
+        }
         if (frozen_col_view_->model() != current_model) {
             frozen_col_view_->setModel(current_model);
             frozen_col_view_->setSelectionModel(selectionModel());
@@ -1610,6 +1615,7 @@ void xTableView::createFrozenColView() {
     auto *frozenHeader = new xCheckableHeaderView(Qt::Horizontal, frozen_col_view_);
     frozen_col_view_->setHorizontalHeader(frozenHeader);
     frozenHeader->setDefaultAlignment(horizontalHeader()->defaultAlignment());
+    frozenHeader->setTextElideMode(horizontalHeader()->textElideMode());
     frozenHeader->setSectionsClickable(horizontalHeader()->sectionsClickable());
     frozenHeader->setSortIndicatorShown(horizontalHeader()->isSortIndicatorShown());
     frozenHeader->setSortIndicator(horizontalHeader()->sortIndicatorSection(),

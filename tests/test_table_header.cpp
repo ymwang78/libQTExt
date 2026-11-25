@@ -17,6 +17,7 @@
 #include <QSignalSpy>
 #include <QStandardItemModel>
 #include <QStyle>
+#include <QStyleFactory>
 #include <QStyleOptionButton>
 #include <QStyleOptionHeader>
 #include <QTableView>
@@ -369,7 +370,11 @@ TEST_F(TableHeader, FrozenColumnsPreserveLeftPrefixAndStayCenteredWhenWide) {
 }
 
 TEST_F(TableHeader, SortableHeaderReservesSortArrowWidthUnderStyleSheet) {
+    std::unique_ptr<QStyle> fusionStyle(QStyleFactory::create(QStringLiteral("Fusion")));
+    ASSERT_NE(fusionStyle, nullptr);
+
     xTableView table(nullptr, true);
+    table.setStyle(fusionStyle.get());
     QStandardItemModel model(2, 1);
     model.setHorizontalHeaderLabels({QString()});
     model.setItem(0, 0, new QStandardItem(QStringLiteral("2")));
@@ -378,6 +383,7 @@ TEST_F(TableHeader, SortableHeaderReservesSortArrowWidthUnderStyleSheet) {
 
     QHeaderView* header = table.horizontalHeader();
     ASSERT_NE(header, nullptr);
+    header->setStyle(fusionStyle.get());
     header->setStretchLastSection(false);
     header->resizeSection(0, 76);
     table.sortBy(0, Qt::AscendingOrder);
@@ -401,17 +407,17 @@ TEST_F(TableHeader, SortableHeaderReservesSortArrowWidthUnderStyleSheet) {
     opt.sortIndicator = QStyleOptionHeader::SortDown;
     const QRect arrowRect = header->style()->subElementRect(QStyle::SE_HeaderArrow, &opt, header);
     ASSERT_TRUE(arrowRect.isValid());
+    ASSERT_GE(arrowRect.bottom(), opt.rect.center().y());
+    ASSERT_GT(arrowRect.left(), opt.rect.center().x());
 
     const int y0 = 3;
     const int y1 = qMax(y0, header->height() - 4);
-    if (arrowRect.bottom() >= opt.rect.center().y() && arrowRect.left() > opt.rect.center().x()) {
-        EXPECT_EQ(countSectionDiffInBand(emptySortedImg, 0, textSortedImg, 0, arrowRect.left(),
-                                         arrowRect.right(), y0, y1, 0),
-                  0);
-        EXPECT_GT(countSectionDiffInBand(emptySortedImg, 0, textSortedImg, 0, 4,
-                                         arrowRect.left() - 3, y0, y1),
-                  15);
-    }
+    EXPECT_EQ(countSectionDiffInBand(emptySortedImg, 0, textSortedImg, 0, arrowRect.left(),
+                                     arrowRect.right(), y0, y1, 0),
+              0);
+    EXPECT_GT(
+        countSectionDiffInBand(emptySortedImg, 0, textSortedImg, 0, 4, arrowRect.left() - 3, y0, y1),
+        15);
 }
 
 TEST_F(TableHeader, MultiLineHeaderFittingHorizontallyStaysCentered) {
@@ -657,6 +663,43 @@ TEST_F(TableHeader, ExplicitTextElideModeIsRespectedOnHorizontalHeader) {
     EXPECT_EQ(countSectionDiffInBand(elideMiddleImg, sec1Left, middleRefImg, sec1Left, 0,
                                      header->sectionSize(1) - 1, 0, header->height() - 1, 0),
               0);
+
+    // 冻结列视图创建时同步主表头的非默认 textElideMode（#39）：
+    // 先在主表头设好 ElideMiddle 再冻结前 2 列，冻结表头应继承 ElideMiddle 并与主表头渲染一致。
+    model.setHeaderData(1, Qt::Horizontal, middleFull, Qt::DisplayRole);
+    header->setTextElideMode(Qt::ElideMiddle);
+    table.freezeLeftColumns(2);
+    QCoreApplication::processEvents();
+
+    QTableView* frozenView = nullptr;
+    for (QTableView* candidate :
+         table.findChildren<QTableView*>(QString(), Qt::FindDirectChildrenOnly)) {
+        if (candidate && candidate->isVisible() && !candidate->horizontalHeader()->isHidden()) {
+            frozenView = candidate;
+            break;
+        }
+    }
+    ASSERT_NE(frozenView, nullptr);
+    QHeaderView* frozenHeader = frozenView->horizontalHeader();
+    ASSERT_NE(frozenHeader, nullptr);
+    EXPECT_EQ(frozenHeader->textElideMode(), Qt::ElideMiddle);
+
+    const QImage frozenMiddleImg = renderWidget(frozenHeader);
+    const int frozenSec1Left = frozenHeader->sectionViewportPosition(1);
+    model.setHeaderData(1, Qt::Horizontal, middleExpected, Qt::DisplayRole);
+    QCoreApplication::processEvents();
+    const QImage frozenMiddleRefImg = renderWidget(frozenHeader);
+    EXPECT_EQ(countSectionDiffInBand(frozenMiddleImg, frozenSec1Left, frozenMiddleRefImg,
+                                     frozenSec1Left, 0, frozenHeader->sectionSize(1) - 1, 0,
+                                     frozenHeader->height() - 1, 0),
+              0);
+
+    // 冻结列视图已存在时：主表头改为 ElideLeft 后再调整冻结列数，冻结表头同样要跟上。
+    header->setTextElideMode(Qt::ElideLeft);
+    table.freezeLeftColumns(1);
+    QCoreApplication::processEvents();
+    EXPECT_EQ(frozenView->horizontalHeader(), frozenHeader);
+    EXPECT_EQ(frozenHeader->textElideMode(), Qt::ElideLeft);
 }
 
 }  // namespace
